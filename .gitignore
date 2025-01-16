@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data_trained_models/
+data_trajectories/
+*.tar.xz
+*.egg-info/

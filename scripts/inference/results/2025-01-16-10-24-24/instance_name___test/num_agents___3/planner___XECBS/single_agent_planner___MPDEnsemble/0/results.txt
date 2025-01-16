@@ -1,0 +1,21 @@
+
+        Trial Config Summary:
+            Method: XECBS
+            Num Agents: 3
+            Instance: test
+            Stagger Start Time: 0
+            Single Agent Planner: MPDEnsemble
+        Planning Problem:
+            start_state_pos_l: [[0.800000011920929, 0.0], [-0.4000000059604645, 0.6928203105926514], [-0.4000000059604645, -0.6928203105926514]]
+            goal_state_pos_l: [[-0.800000011920929, 9.797174158936853e-17], [0.4000000059604645, -0.6928203105926514], [0.4000000059604645, 0.6928203105926514]]
+            global_model_ids: [['EnvEmptyNoWait2D-RobotPlanarDisk']]
+            agent_skeleton_l: [[[0, 0]], [[0, 0]], [[0, 0]]]
+        Trial Results:
+            success_status: TrialSuccessStatus.SUCCESS  
+            num_collisions_in_solution: 0
+            data_adherence: 0.921875
+            planning_time: 6.752307653427124
+            path_length_per_agent: 1.6298555533091228
+            mean_path_acceleration_per_agent: 0.0008254518810038766
+            num_ct_expansions: 0
+        
