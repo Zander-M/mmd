@@ -1,0 +1,8 @@
+__pycache__/
+*.egg-info/
+*.pyc
+data_trained_models/
+data_trained_models_large/
+data_trajectories/
+scripts/inference/results/*
+*.tar.xz
