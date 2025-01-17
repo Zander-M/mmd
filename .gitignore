@@ -1,5 +1,4 @@
 __pycache__/
-<<<<<<< HEAD
 *.egg-info/
 *.pyc
 data_trained_models/
@@ -7,10 +6,3 @@ data_trained_models_large/
 data_trajectories/
 scripts/inference/results/*
 *.tar.xz
-=======
-*.pyc
-data_trained_models/
-data_trajectories/
-*.tar.xz
-*.egg-info/
->>>>>>> efb58dfc49b1366bdf422b8bc7ae36df6cf1dd27
