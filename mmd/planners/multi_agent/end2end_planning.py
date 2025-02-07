@@ -108,8 +108,13 @@ class End2EndPlanner:
         t_total = timer_inference.elapsed
         print(f'sampling: {t_total:.3f} sec')
 
+        #TODO: check if we need extract the best path from the batch
+        #best_path_l = [root.path_bl[i][ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch in
+        #               enumerate(root.ix_best_path_in_batch_l)]
 
         # Check for conflicts
+        # TODO: check if we need check for conflicts
+        # origin: conflict_l = self.get_conflicts(root)
         conflict_l = self.get_conflicts(best_path_l)
         print(RED + 'Conflicts root node:', len(conflict_l), RESET)
         if success_status == TrialSuccessStatus.UNKNOWN:
@@ -119,7 +124,7 @@ class End2EndPlanner:
                 success_status = TrialSuccessStatus.SUCCESS
 
         # Global pad before returning.
-        # TODO: check if we need padding
+        # best_path_l: List[torch.Tensor], start_time_l:List[int]
         best_path_l = global_pad_paths(best_path_l, self.start_time_l)
 
         return best_path_l, t_total, success_status, len(conflict_l)
