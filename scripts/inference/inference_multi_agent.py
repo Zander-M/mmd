@@ -256,6 +256,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Plan.
     # ============================
     startt = time.time()
+    import pdb; pdb.set_trace()
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
         planner.plan(runtime_limit=test_config.runtime_limit)
     planning_time = time.time() - startt
@@ -370,7 +371,8 @@ if __name__ == '__main__':
     test_config_single_tile = MultiAgentPlanningSingleTrialConfig()
     test_config_single_tile.num_agents = 3
     test_config_single_tile.instance_name = "test"
-    test_config_single_tile.multi_agent_planner_class = "XECBS"  # Or "ECBS" or "XCBS" or "CBS" or "PP".
+    # test_config_single_tile.multi_agent_planner_class = "XECBS"  # Or "ECBS" or "XCBS" or "CBS" or "PP".
+    test_config_single_tile.multi_agent_planner_class = "PP"
     test_config_single_tile.single_agent_planner_class = "MPDEnsemble"  # Or "MPD"
     test_config_single_tile.stagger_start_time_dt = 0
     test_config_single_tile.runtime_limit = 60 * 3  # 3 minutes.
