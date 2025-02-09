@@ -1,4 +1,4 @@
-name: mmd
+name: mmd-dev
 channels:
   - pytorch
   - conda-forge

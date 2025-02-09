@@ -9,6 +9,7 @@ from typing import Tuple, List
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.torch_utils import get_torch_device
 # from mmd.planners.multi_agent import CBS, PrioritizedPlanning
+from mmd.planners.multi_agent import End2EndPlanning
 from mmd.planners.single_agent import MPD, MPDEnd2End, MPDEnsemble
 from mmd.common.constraints import MultiPointConstraint
 from mmd.common.conflicts import PointConflict
@@ -59,12 +60,13 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         'seed': params.seed,
         'results_dir': params.results_dir,
         'trained_models_dir': TRAINED_MODELS_DIR,
-        'device': params.device,
     }
     end_to_end_planner_model_args = {
         'start_time_l': start_time_l,
         'runtime_limit': test_config.runtime_limit,
+        # 'n_diffusion_steps': test_config.n_diffusion_steps,
         'conflict_type_to_constraint_types': {PointConflict: {MultiPointConstraint}},
+        'device': params.device,
         # device, seed, debug需要挪出来吗？
     }
 
@@ -132,7 +134,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
             skeleton_model_coord[1]]
     reference_agent_model_ids = [reference_agent_model_ids[i] for i in range(len(reference_agent_model_ids))]
     # Create the reference low level planner
-    print("Creating reference agent stuff.")
     diffusion_planner_model_args['start_state_pos'] = torch.tensor([0.5, 0.9], **tensor_args)  # This does not matter.
     diffusion_planner_model_args['goal_state_pos'] = torch.tensor([-0.5, 0.9], **tensor_args)  # This does not matter.
     diffusion_planner_model_args['model_ids'] = reference_agent_model_ids  # This matters.
@@ -144,7 +145,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     reference_single_agent_planner = planner_class(**diffusion_planner_model_args)
     reference_task = reference_single_agent_planner.task
     reference_robot = reference_single_agent_planner.robot
-    print('debug: reference_single_agent_planner created')
 
     # ============================
     # Run trial.
@@ -193,12 +193,12 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         single_agent_planner_l.append(planner_class(**single_agent_planner_model_args_i))
     print('Planners creation time:', time.time() - planners_creation_start_time)
     print("\n\n\n\n")
-    
+
     # ============================
     # Create the multi agent planner.
     # don't really exist, but we use sth like PP
     # ============================
-    planner = End2EndPlanner(single_agent_planner_l,
+    planner = End2EndPlanning(single_agent_planner_l,
                              start_l,
                              goal_l,
                              reference_task=reference_task,
@@ -209,8 +209,16 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Plan.
     # ============================
     startt = time.time()
+    state_dim = single_agent_planner_l[0].state_dim
+    batch_size = params.n_samples
+    shape = (num_agents, batch_size, params.horizon, state_dim)
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
-        planner.plan(runtime_limit=test_config.runtime_limit, shape=shape)
+        planner.plan(runtime_limit=test_config.runtime_limit, 
+                     shape=shape,
+                     t_start_guide=single_agent_planner_l[0].t_start_guide,
+                     n_diffusion_steps=test_config.n_diffusion_steps,
+                     n_diffusion_steps_without_noise=single_agent_planner_l[0].n_diffusion_steps_without_noise,
+                    )
     planning_time = time.time() - startt
     # Print planning times.
     print(GREEN, 'Planning times:', planning_time, RESET)
@@ -296,6 +304,7 @@ if __name__ == '__main__':
         get_start_goal_pos_circle(test_config_single_tile.num_agents, 0.8)
         print("Starts:", test_config_single_tile.start_state_pos_l)
         print("Goals:", test_config_single_tile.goal_state_pos_l)
+        test_config_single_tile.n_diffusion_steps = 50
 
         run_multi_agent_trial(test_config_single_tile)
         print(GREEN, 'OK.', RESET)

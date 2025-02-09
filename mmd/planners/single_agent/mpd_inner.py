@@ -20,7 +20,7 @@ from mmd.utils.loading import load_params_from_yaml
 from mmd.planners.single_agent.single_agent_planner_base import SingleAgentPlanner
 from mmd.common.pretty_print import *
 
-class MPD_inner(SingleAgentPlanner):
+class MPDEnd2End(SingleAgentPlanner):
     """
         A class that allows repeated calls to the same model with different inputs(at different sampling step)
         This class keeps track of constraints and feed them to the model only when needed
@@ -28,8 +28,11 @@ class MPD_inner(SingleAgentPlanner):
     def __init__(self,
                  model_id: str,
                  start_state_pos: torch.tensor,
+                 goal_state_pos: torch.tensor,
                  use_guide_on_extra_objects_only: bool,
                  start_guide_steps_fraction: float,
+                 n_guide_steps: int,
+                 n_diffusion_steps_without_noise: int,
                  weight_grad_cost_collision: float,
                  weight_grad_cost_smoothness: float,
                  weight_grad_cost_constraints: float,
@@ -38,8 +41,9 @@ class MPD_inner(SingleAgentPlanner):
                  trajectory_duration: str,
                  device: str,
                  seed: int,
-                 result_dir: str,
+                 results_dir: str,
                  trained_models_dir: str,
+                 n_samples: int,
                  **kwargs
                  ):
         super().__init__()
@@ -89,6 +93,7 @@ class MPD_inner(SingleAgentPlanner):
         dataset = train_subset.dataset
         # Number of support points in the trajectory.
         n_support_points = dataset.n_support_points
+        state_dim = dataset.state_dim
         # The environment.
         env = dataset.env      
         # The robot. Contains the dt, the joint limits, etc.
@@ -154,6 +159,7 @@ class MPD_inner(SingleAgentPlanner):
 
         print(f'start_state_pos: {start_state_pos}')
         print(f'goal_state_pos: {goal_state_pos}')
+        
 
         ####################################
         # Run motion planning inference
@@ -162,6 +168,7 @@ class MPD_inner(SingleAgentPlanner):
         # normalize start and goal positions
         hard_conds = dataset.get_hard_conditions(torch.vstack((start_state_pos, goal_state_pos)), normalize=True)
         context = None
+        print(f'debug: get hard_conds via dataset.get_hard_conditions: {hard_conds}')
 
         ########
         # Set up the planning costs
@@ -173,6 +180,7 @@ class MPD_inner(SingleAgentPlanner):
         else:
             collision_fields = task.get_collision_fields()
 
+        print('debug: prepare to constract cost_collision_list')
         for collision_field in collision_fields:
             cost_collision_l.append(
                 CostCollision(
@@ -206,6 +214,7 @@ class MPD_inner(SingleAgentPlanner):
             weights_cost_l=weights_grad_cost_l,
             tensor_args=tensor_args
         )
+        print('debug: cost_composite list got')
 
         ########
         # Guiding manager
@@ -217,8 +226,8 @@ class MPD_inner(SingleAgentPlanner):
             num_interpolated_points=ceil(n_support_points * factor_num_interpolated_points_for_collision),
             tensor_args=tensor_args,
         )
+        print('debug: guide is formulated')
 
-        # TODO: may not needed if MPD_inner is for one step
         t_start_guide = ceil(start_guide_steps_fraction * model.n_diffusion_steps)
 
         # Keep some variables in the class as members.
@@ -232,6 +241,7 @@ class MPD_inner(SingleAgentPlanner):
         self.hard_conds = hard_conds
         self.model = model
         self.n_support_points = n_support_points
+        self.state_dim = state_dim
         self.t_start_guide = t_start_guide
         self.n_guide_steps = n_guide_steps
         self.guide = guide
@@ -239,25 +249,27 @@ class MPD_inner(SingleAgentPlanner):
         # Batch-size. How many trajectories to generate at once.
         self.num_samples = n_samples
         # When doing local inference, how many steps to add noise for before denoising again.
-        self.n_local_inference_noising_steps = n_local_inference_noising_steps  # n_local_inference_noising_steps
-        self.n_local_inference_denoising_steps = n_local_inference_denoising_steps
+        # self.n_local_inference_noising_steps = n_local_inference_noising_steps  # n_local_inference_noising_steps
+        # self.n_local_inference_denoising_steps = n_local_inference_denoising_steps
         # Dataset.
         self.dataset = dataset
         # Task, e.g., planning task.
         self.task = task
         # Directories.
         self.results_dir = results_dir
-
+    """
     def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraint],
                  *args,
                  **kwargs):
-        """
+        
         Call the model with given parameters.
         :param n_samples: Number of trajectories to generate.
         :param start_state_pos: The start state of the robot.
         :param goal_state_pos: The goal state of the robot.
         :param constraints_l: A list of constraints. In this case, interaction among agents
-        """
+        
+        pass
+        
         # Check that the requested start and goal states are similar to the ones stored.
         if not torch.allclose(start_state_pos, self.start_state_pos):
             raise ValueError("The start state is different from the one stored in the planner.")
@@ -338,7 +350,7 @@ class MPD_inner(SingleAgentPlanner):
         # Remove the extra cost
         self.guide.reset_extra_costs()
 
-        return trajs_normalized, t_post_diffusion_guide
+        return trajs_normalized, t_post_diffusion_guide"""
 
     def update_constraints(self, constraint_l):
         cost_constraints_l = []
