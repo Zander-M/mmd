@@ -209,12 +209,9 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Plan.
     # ============================
     startt = time.time()
-    state_dim = single_agent_planner_l[0].state_dim
-    batch_size = params.n_samples
-    shape = (num_agents, batch_size, params.horizon, state_dim)
+    
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
-        planner.plan(runtime_limit=test_config.runtime_limit, 
-                     shape=shape,
+        planner.plan(runtime_limit=test_config.runtime_limit,
                      t_start_guide=single_agent_planner_l[0].t_start_guide,
                      n_diffusion_steps=test_config.n_diffusion_steps,
                      n_diffusion_steps_without_noise=single_agent_planner_l[0].n_diffusion_steps_without_noise,
@@ -226,21 +223,38 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # ============================
     # Gather stats.
     # ============================
-    # The agent paths. Each entry is of shape (H, 4).
     single_trial_result = MultiAgentPlanningSingleTrialResult()
+    # The associated experiment config.
+    single_trial_result.trial_config = test_config
+    # The planning problem.
+    single_trial_result.start_state_pos_l = [start_l[i].cpu().numpy().tolist() for i in range(num_agents)]
+    single_trial_result.goal_state_pos_l = [goal_l[i].cpu().numpy().tolist() for i in range(num_agents)]
+    single_trial_result.global_model_ids = global_model_ids
+    single_trial_result.agent_skeleton_l = agent_skeleton_l
+    # The agent paths. Each entry is of shape (H, 4).
     single_trial_result.agent_path_l = paths_l
     # Success.
-    single_trial_result.success_status = trial_success_status
+    single_trial_result.success_status = trial_success_status[-1]
     # Number of collisions in the solution.
     single_trial_result.num_collisions_in_solution = num_collisions_in_solution    
     # Planning time.
     single_trial_result.planning_time = planning_time
 
     # Number of agent pairs in collision.
+    if len(paths_l) > 0 and trial_success_status:
+        for t in range(len(paths_l[0])):
+            for j in range(i + 1, num_agents):
+                if torch.norm(paths_l[i][t, :2] - paths_l[j][t, :2]) < 2.0 * params.robot_planar_disk_radius:
+                    # The above should be reference_robot.radius.
+                    print(RED, 'Collision in solution:', i, j, t, paths_l[i][t, :2], paths_l[j][t, :2], RESET)
+                    single_trial_result.num_collisions_in_solution += 1
+        if single_trial_result.num_collisions_in_solution > 0:
+            single_trial_result.success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
 
     # If not successful, return here.
     if trial_success_status:
         pass
+
     # ============================
     # Save the results and config.
     # ============================
@@ -265,10 +279,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
                                  output_fpath=os.path.join(results_dir, f'{exp_name}.gif'),
                                  plot_trajs=True,
                                  animation_duration=10)
-
-
-
-
 
     
 

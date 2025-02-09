@@ -177,7 +177,7 @@ class End2EndPlanning:
         # Extract the best path from the batch
         # self.recent_call_data_l = []
         # the result returned to main
-        best_path_l, trial_success_status_l, num_collisions_in_solution_l = [], [], [], []
+        best_path_l, trial_success_status_l = [], []
         # t_total = time.time() - start_time
 
         for i in range(num_agent):
@@ -257,7 +257,7 @@ class End2EndPlanning:
         
         
         # best_path, num_ct_expansions, trial_success_status, num_collisions_in_solution in priority_planning.plan
-        return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, num_collisions_in_solution_l
+        return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, len(conflict_l)
     
     def create_soft_constraints_from_other_agents_paths(self, prev_trajs, agent_id: int) -> List[MultiPointConstraint]:
         if not prev_trajs:
@@ -274,7 +274,7 @@ class End2EndPlanning:
 
         return agent_constraint_l
 
-    def get_conflicts(self, path_l) -> List[Conflict]:
+    def get_conflicts(self, path_l: List[torch.Tensor]) -> List[Conflict]:
         """
         Find conflicts between paths
         TODO: data structure matters
