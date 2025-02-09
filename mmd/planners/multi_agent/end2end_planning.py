@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import torch
 from typing import Tuple, List
 
+from torch_robotics.trajectory.metrics import compute_smoothness, compute_path_length, compute_variance_waypoints
 from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostConstraint
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
 from mmd.common.conflicts import Conflict
@@ -14,7 +15,7 @@ from mmd.common.constraints import MultiPointConstraint
 from mmd.common.experiments import TrialSuccessStatus
 from mmd.common.pretty_print import *
 from mmd.config import MMDParams as params
-from mmd.common import is_multi_agent_start_goal_states_valid, global_pad_paths
+from mmd.common import smooth_trajs, is_multi_agent_start_goal_states_valid, global_pad_paths
 from mmd.models.diffusion_models.sample_functions import apply_hard_conditioning, ddpm_sample_fn
 
 def make_timesteps(batch_size, i ,device):
@@ -170,14 +171,21 @@ class End2EndPlanning:
         #   trajs_post_diff = einops.rearrange(trajs_post_diff, 'num_agent b post_diff_steps h d ->num_agent post_diff, b, h, d')
         #   trajs_normalized_iters = torch.cat((trajs_normalized_iters, trajs_post_diff))
         #   t_post_diffusion_guide = timer_post_model_sample_guide.elapsed
+        
 
-        self.recent_call_data_l = []
-        best_path_l = []
-        t_total = time.time() - start_time
-        # un-normalize trajectory samples from the models
+        ######################################
+        # Extract the best path from the batch
+        # self.recent_call_data_l = []
+        # the result returned to main
+        best_path_l, trial_success_status_l, num_collisions_in_solution_l = [], [], [], []
+        # t_total = time.time() - start_time
+
         for i in range(num_agent):
             agent = self.single_agent_planner_l[i]
+
+            # un-normalize trajectory samples from the models
             traj_iters = agent.dataset.unnormalize_trajectories(chain[i])
+            # trajectory of the final diffusion step output
             trajs_final = traj_iters[-1]
             trajs_final_coll, trajs_final_coll_idxs, trajs_final_free, trajs_final_free_idxs, _ = (
                 agent.task.get_trajs_collision_and_free(trajs_final, return_indices=True))
@@ -188,7 +196,8 @@ class End2EndPlanning:
             cost_smoothness = None  # Cost of smoothness for all free trajectories.
             cost_path_length = None  # Cost of path length for all free trajectories.
             cost_all = None  # Cost of all factors for all free trajectories. This is a combination of some costs.
-            variance_waypoint_trajs_final_free = None  # Variance of waypoints for all free trajectories.
+            # variance_waypoint_trajs_final_free = None  # Variance of waypoints for all free trajectories.
+
             if trajs_final_free is not None:
                 cost_smoothness = compute_smoothness(trajs_final_free, agent.robot)
                 print(f'#{i} agent cost smoothness: {cost_smoothness.mean():.4f}, {cost_smoothness.std():.4f}')
@@ -202,78 +211,53 @@ class End2EndPlanning:
                 idx_best_traj = trajs_final_free_idxs[idx_best_free_traj]
                 cost_best_free_traj = torch.min(cost_all).item()
                 print(f'#{i} agent cost best: {cost_best_free_traj:.3f}')
-
-                variance_waypoint_trajs_final_free = compute_variance_waypoints(trajs_final_free, agent.robot)
+                # variance_waypoint_trajs_final_free = compute_variance_waypoints(trajs_final_free, agent.robot)
+                # even it's stored in planner_output, but it's never called? 
             
-            # TODO: we might not need this PlannerOutput class. it's related to updating PP's node
-            # personaly i don't think we need this -> it's an end-to-end way, not like PP
-            single_agent_output = PlannerOutput()
-            single_agent_outputtrajs_iters = trajs_normalized_iters[i]  # chain
-            single_agent_output.trajs_final = trajs_final# chain[-1]
-            single_agent_output.trajs_final_coll = trajs_final_coll
-            single_agent_output.trajs_final_coll_idxs = trajs_final_coll_idxs
-            single_agent_output.trajs_final_free = trajs_final_free  # in MPD shape[B,H,D] -> []
-            single_agent_output.t_total = t_total
-            single_agent_output.trajs_final_free_idxs = trajs_final_free_idxs  # Shape [B]
-            single_agent_output.idx_best_traj = idx_best_traj
-            single_agent_output.idx_best_free_traj = idx_best_free_traj
-            single_agent_output.cost_best_free_traj = cost_best_free_traj
-            single_agent_output.cost_smoothness = cost_smoothness
-            single_agent_output.cost_path_length = cost_path_length
-            single_agent_output.cost_all = cost_all
-            single_agent_output.variance_waypoint_trajs_final_free = variance_waypoint_trajs_final_free
-            single_agent_output.constraints_l = constraint_l[i]
-
             # Smooth the trajectories in trajs_final
-            if self.recent_call_data.trajs_final is not None:
-                self.recent_call_data.trajs_final = smooth_trajs(self.recent_call_data.trajs_final)
+            if trajs_final is not None:
+                # smooth_trajs(trajs, window_size=10, poly_order=2)
+                # trajs, 1. List of trajectories, Each is a tensor of shape (H, q_dim) 2.tensor.shape = (B, H, dim)
+                trajs_final = smooth_trajs(trajs_final)
             
-            if single_agent_output.trajs_final_free_idxs.shape[0]==0:
-                success_status = TrialSuccessStatus.FAIL_NO_SOLUTION
-                break
+            if trajs_final_free_idxs.shape[0]==0:
+                best_path_l.append(trajs_final)
+                trial_success_status_l.append(TrialSuccessStatus.FAIL_NO_SOLUTION)
+                continue
+
             # check if the runtime limit has been reached
+            # if so, return whatever we have
             if time.time() - start_time > runtime_limit:
-                print("Runtime Limit Reached")
-                success_status = TrialSuccessStatus.FAIL_RUNTIME_LIMIT
-                return None, 0, success_status, len(conflict_l[i])
+                print(f"Runtime Limit Reached at agent #{i}")
+                trial_success_status_l.append(TrialSuccessStatus.FAIL_RUNTIME_LIMIT)
+                return best_path_l, 0, trial_success_status_l, []
             
             # Extract the best path from the batch
-            single_agent_best_path_l = [single_agent_output.trajs_final[i][ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch 
-                        in enumerate(single_agent_output.idx_best_traj)]
-            # TODO: check if we need this plannerOutput
-            single_agent_conflict_l = self.get_conflicts(root)
-            print(RED + 'Conflicts root node:', len(conflict_l), RESET)
-            if success_status == TrialSuccessStatus.UNKNOWN:
-                if len(conflict_l) > 0:
-                    success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
-                #else:
-                    #success_status = TrialSuccessStatus.SUCCESS
+            single_agent_best_path_l = [trajs_final[i][ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch 
+                        in enumerate(idx_best_traj)]  
             
             # Global pad before returning.
             # best_path_l: List[torch.Tensor], start_time_l:List[int]
             single_agent_best_path_l = global_pad_paths(single_agent_best_path_l, agent.start_time_l)
-            #TODO: stack the single_agent_best_path_l
-            best_path_l.append(single_agent_best_path_l)
-
-
-
-        #TODO: check if we need extract the best path from the batch
-        #best_path_l = [root.path_bl[i][ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch in
-        #               enumerate(root.ix_best_path_in_batch_l)]
+            single_agent_best_paths = torch.stack(single_agent_best_path_l)
+            
+            best_path_l.append(single_agent_best_paths)
 
         # Check for conflicts
-        # TODO: check for conflicts, sth like: conflict_l = self.get_conflicts(root)
-        # TODO: TOO SLEEPY. CAN"T WORK ANYMORE
         conflict_l = self.get_conflicts(best_path_l)
         print(RED + 'Conflicts root node:', len(conflict_l), RESET)
-        if success_status == TrialSuccessStatus.UNKNOWN:
+        # if every single agent success and the final multi-agent path has no conflict, return success
+        if all(item == TrialSuccessStatus.UNKNOWN for item in trial_success_status_l):
             if len(conflict_l) > 0:
-                success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
+                # success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
+                trial_success_status_l.append(TrialSuccessStatus.FAIL_COLLISION_AGENTS)
             else:
-                success_status = TrialSuccessStatus.SUCCESS
-
-
-        return best_path_l, num_ct_expansions_l, trial_success_status_l, num_collisions_in_solution_l
+                # success_status = TrialSuccessStatus.SUCCESS
+                trial_success_status_l.append(TrialSuccessStatus.SUCCESS)
+        
+        
+        # best_path, num_ct_expansions, trial_success_status, num_collisions_in_solution in priority_planning.plan
+        return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, num_collisions_in_solution_l
     
     def create_soft_constraints_from_other_agents_paths(self, prev_trajs, agent_id: int) -> List[MultiPointConstraint]:
         if not prev_trajs:
@@ -296,5 +280,5 @@ class End2EndPlanning:
         TODO: data structure matters
         """
         conflicts = []
-        return conflicts#
+        return conflicts
 
