@@ -213,7 +213,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
         planner.plan(runtime_limit=test_config.runtime_limit,
                      t_start_guide=single_agent_planner_l[0].t_start_guide,
-                     n_diffusion_steps=test_config.n_diffusion_steps,
+                     # n_diffusion_steps=test_config.n_diffusion_steps,
                      n_diffusion_steps_without_noise=single_agent_planner_l[0].n_diffusion_steps_without_noise,
                     )
     planning_time = time.time() - startt
@@ -314,7 +314,7 @@ if __name__ == '__main__':
         get_start_goal_pos_circle(test_config_single_tile.num_agents, 0.8)
         print("Starts:", test_config_single_tile.start_state_pos_l)
         print("Goals:", test_config_single_tile.goal_state_pos_l)
-        test_config_single_tile.n_diffusion_steps = 50
+        # test_config_single_tile.n_diffusion_steps = 50
 
         run_multi_agent_trial(test_config_single_tile)
         print(GREEN, 'OK.', RESET)

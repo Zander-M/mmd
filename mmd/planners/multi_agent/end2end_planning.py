@@ -39,6 +39,7 @@ class End2EndPlanning:
         # self.low_level_choose_path_from_batch_strategy = params.low_level_choose_path_from_batch_strategy
         # self.n_diffusion_steps = n_diffusion_steps
         self.single_agent_planner_l = single_agent_planner_l
+        self.n_diffusion_steps = single_agent_planner_l[0].model.n_diffusion_steps
         self.num_agents = len(start_l)
         self.agent_color_l = plt.cm.get_cmap('tab20')(torch.linspace(0, 1, self.num_agents))
         self.start_state_pos_l = start_l
@@ -73,7 +74,7 @@ class End2EndPlanning:
         # TODO: 
         pass
 
-    def plan(self, t_start_guide, n_diffusion_steps, n_diffusion_steps_without_noise, 
+    def plan(self, t_start_guide, n_diffusion_steps_without_noise, 
              sample_fn=ddpm_sample_fn, return_chain=True, warm_start_path_b=None, runtime_limit=1000,):
         """
         Plan a path from start to goal. Do it for one agent at a time.
@@ -89,10 +90,10 @@ class End2EndPlanning:
         
         if warm_start_path_b is not None:
             x = warm_start_path_b
-            print(CYAN, "Using warm start path in p_sample_loop. Steps (negative attempts to recon. t=0)", [n_diffusion_steps, -n_diffusion_steps_without_noise], RESET)
+            print(CYAN, "Using warm start path in p_sample_loop. Steps (negative attempts to recon. t=0)", [self.n_diffusion_steps, -n_diffusion_steps_without_noise], RESET)
         else:
             x = torch.randn(shape, device=device)
-            print(CYAN, "Using random noise in p_sample_loop. Steps (negative attempts to recon. t=0)", [n_diffusion_steps, -n_diffusion_steps_without_noise], RESET)
+            print(CYAN, "Using random noise in p_sample_loop. Steps (negative attempts to recon. t=0)", [self.n_diffusion_steps, -n_diffusion_steps_without_noise], RESET)
         #if 't_start_guide' in sample_kwargs:
         #    print(CYAN, "Starting to guide after t <", sample_kwargs['t_start_guide'], RESET)
         print(CYAN, "Starting to guide after t <", t_start_guide, RESET)
@@ -102,7 +103,7 @@ class End2EndPlanning:
         prev_step_trajs = x
         constraint_l = [[] for _ in range(num_agent)]
         with TimerCUDA() as timer_inference:
-            for i in reversed(range(-n_diffusion_steps_without_noise, n_diffusion_steps)):
+            for i in reversed(range(-n_diffusion_steps_without_noise, self.n_diffusion_steps)):
                 t = make_timesteps(batch_size, i, device)
                 for j in range(num_agent):
                     agent = self.single_agent_planner_l[j]
@@ -121,21 +122,19 @@ class End2EndPlanning:
                     
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
                     # NOTE: constraint_l: same type with PP's self.create_soft_constraints_from_other_agents_paths(root, agent_id=j)
-                    # Note sure which should be input if there's no "root"
+                    # type(constraint_l[j]) = List[]
                     constraint_l[j] = self.create_soft_constraints_from_other_agents_paths(prev_step_trajs, agent_id=j)
-                    print("debug: constraint_list respect to other agents is created")
                     agent.update_constraints(constraint_l[j])
                     # NOTE: model_variance is obtained by agent.model.p_mean_variance
                     # this function is called in sample_fn, but the value(variance) is not returned
                     # could return the variance of this step by creating a new sample_fn_return_var
-                    print("debug: agent updated with the constraint list")
 
                     x[j], _ = sample_fn(agent.model, x[j], hard_conds, context, t, guide=agent.guide)
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
                     # remove the added collision constraint(among agents)
                     agent.guide.reset_extra_costs()
                     print("debug: agent.guide.reset_extra_costs(). need to check if the self.single_agent_planner_l[j] is updated")
-                    prev_step_trajs[j] = x[i]
+                    prev_step_trajs[j] = x[j]
                 if return_chain:
                     chain.append(x)
                 
@@ -260,15 +259,15 @@ class End2EndPlanning:
         return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, len(conflict_l)
     
     def create_soft_constraints_from_other_agents_paths(self, prev_trajs, agent_id: int) -> List[MultiPointConstraint]:
-        if not prev_trajs:
-            return []
+        # if not prev_trajs:
+        #    return []
         
         agent_constraint_l = []
         # might not need this?
-        t_range_l = []
-        for agent_id_other in range(self.num_agents):
-            if agent_id_other != agent_id:
-                pass
+        #t_range_l = []
+        #for agent_id_other in range(self.num_agents):
+        #    if agent_id_other != agent_id:
+        #        pass
         
         # if len(q_l)>0:
 

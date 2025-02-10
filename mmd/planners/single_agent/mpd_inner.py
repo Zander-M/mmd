@@ -257,17 +257,17 @@ class MPDEnd2End(SingleAgentPlanner):
         self.task = task
         # Directories.
         self.results_dir = results_dir
-    """
+
     def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraint],
                  *args,
                  **kwargs):
-        
+        """
         Call the model with given parameters.
         :param n_samples: Number of trajectories to generate.
         :param start_state_pos: The start state of the robot.
         :param goal_state_pos: The goal state of the robot.
         :param constraints_l: A list of constraints. In this case, interaction among agents
-        
+        """
         pass
         
         # Check that the requested start and goal states are similar to the ones stored.
@@ -350,7 +350,7 @@ class MPDEnd2End(SingleAgentPlanner):
         # Remove the extra cost
         self.guide.reset_extra_costs()
 
-        return trajs_normalized, t_post_diffusion_guide"""
+        return trajs_normalized, t_post_diffusion_guide
 
     def update_constraints(self, constraint_l):
         cost_constraints_l = []
