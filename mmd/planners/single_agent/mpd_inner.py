@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 from typing import List
 
-from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostConstraint
+from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostConstraintNoise
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.seed import fix_random_seed
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
@@ -362,9 +362,10 @@ class MPDEnd2End(SingleAgentPlanner):
                             min(params.horizon - 1, t_range[1]))
                         for t_range in c.t_range_l]
             cost_constraints_l.append(
-                CostConstraint(
+                CostConstraintNoise(
                     self.robot,
                     self.n_support_points,
+                    model_var=c.model_var,
                     q_l=c.get_q_l(),
                     traj_range_l=c.get_t_range_l(),
                     radius_l=c.radius_l,

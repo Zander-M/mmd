@@ -335,6 +335,7 @@ class CostCostraintNoise(Cost):
     def __init__(self,
                  robot,
                  n_support_points,
+                 model_var,
                  q_l: List[torch.Tensor],  # Length n.
                  traj_range_l: List[tuple],  # Length n. A tuple (start, end) for each constraint. Inclusive.
                  radius_l: List[float],  # Length n. The radius for each constraint.
@@ -346,6 +347,7 @@ class CostCostraintNoise(Cost):
         self.traj_ranges = torch.tensor(traj_range_l, **self.tensor_args)  # (n, 2)
         self.radii = torch.tensor(radius_l, device=self.qs.device)  # (n,)
         self.is_soft = is_soft
+        self.model_var = model_var
     
     def eval(self, trajs):
         # everything else could stay the same. we just modify the dist_constraint
@@ -373,13 +375,12 @@ class CostCostraintNoise(Cost):
         
         # Compute the cost.
         # costs = (self.radii.view(-1, 1, 1) - dist_constraint).sum(dim=-1)  # (n, B)
-        sigma_p = torch.eye(q_pos.shape[-1], device=q_pos.device) * model_var
+        sigma_p = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
         # TODO:
         # 1. what the hell is this q_pos_masked and qs
-        # 2. how to pass model_var here
-        sigma_q = torch.eye(q_pos.shape[-1], device=q_pos.device) * model_var
+        sigma_q = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
         p = MultivariateNormal(q_pos_masked, covariance_matrix=sigma_p)
-        q = MultivariateNormal(self.qs.view(-1, 1, 1,q_pos.shape[-1]), covariance_matrix=sigma)
+        q = MultivariateNormal(self.qs.view(-1, 1, 1,q_pos.shape[-1]), covariance_matrix=sigma_q)
         costs = kl_divergence(p, q)
         
         # Sum the costs across all constraints.
