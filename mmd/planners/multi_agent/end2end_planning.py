@@ -11,7 +11,7 @@ from torch_robotics.trajectory.metrics import compute_smoothness, compute_path_l
 from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostConstraint
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
 from mmd.common.conflicts import Conflict
-from mmd.common.constraints import MultiPointConstraint
+from mmd.common.constraints import MultiPointConstraintNoise
 from mmd.common.experiments import TrialSuccessStatus
 from mmd.common.pretty_print import *
 from mmd.config import MMDParams as params
@@ -29,7 +29,7 @@ class End2EndPlanning:
     def __init__(self, single_agent_planner_l,
                  start_l: List[torch.Tensor],
                  goal_l: List[torch.Tensor],
-                 # n_diffusion_steps: int = 50,
+                 start_consider_collision_step: int = 5,
                  device = None,
                  start_time_l: List[int] = None,
                  reference_robot=None,
@@ -37,9 +37,11 @@ class End2EndPlanning:
                  **kwargs):
         # Some parameters:
         # self.low_level_choose_path_from_batch_strategy = params.low_level_choose_path_from_batch_strategy
-        # self.n_diffusion_steps = n_diffusion_steps
+        self.start_consider_collision_step = start_consider_collision_step
         self.single_agent_planner_l = single_agent_planner_l
         self.n_diffusion_steps = single_agent_planner_l[0].model.n_diffusion_steps
+        if self.start_consider_collision_step >= self.n_diffusion_steps:
+            raise ValueError(f"start_consider_collision_step: {self.start_consider_collision_step} should be smaller than n_diffusion_steps: {self.n_diffusion_steps}")
         self.num_agents = len(start_l)
         self.agent_color_l = plt.cm.get_cmap('tab20')(torch.linspace(0, 1, self.num_agents))
         self.start_state_pos_l = start_l
@@ -123,11 +125,10 @@ class End2EndPlanning:
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
                     # NOTE: constraint_l: same type with PP's self.create_soft_constraints_from_other_agents_paths(root, agent_id=j)
                     # type(constraint_l[j]) = List[]
-                    constraint_l[j] = self.create_soft_constraints_from_other_agents_paths(prev_step_trajs, agent_id=j)
+                    model_log_variance = agent.model.posterior_log_variance_clipped.gather(-1, t).reshape(batch_size, *((1,) * (len(x[j].shape) - 1)))
+                    model_var = torch.exp(model_log_variance)
+                    constraint_l[j] = self.create_soft_constraints_from_other_agents_paths(prev_step_trajs, agent_id=j, step=t, model_var=model_var)
                     agent.update_constraints(constraint_l[j])
-                    # NOTE: model_variance is obtained by agent.model.p_mean_variance
-                    # this function is called in sample_fn, but the value(variance) is not returned
-                    # could return the variance of this step by creating a new sample_fn_return_var
 
                     x[j], _ = sample_fn(agent.model, x[j], hard_conds, context, t, guide=agent.guide)
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
@@ -257,22 +258,90 @@ class End2EndPlanning:
         
         # best_path, num_ct_expansions, trial_success_status, num_collisions_in_solution in priority_planning.plan
         return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, len(conflict_l)
-    
-    def create_soft_constraints_from_other_agents_paths(self, prev_trajs, agent_id: int) -> List[MultiPointConstraint]:
-        # if not prev_trajs:
-        #    return []
+
+    def create_soft_constraints_from_other_agents_paths(self, prev_trajs: torch.Tensor, agent_id: int, step:int, model_var=None,) -> List[MultiPointConstraintNoise]:
+        """
+        Create soft constraints from the paths of other agents.
+        prev_trajs: torch.Tensor. trajectories at t-1 diffusion step for all agents.
+        prev_trajs.shape = [num_agent, batch_size, horizon, q_dim]
+        ix_best_path_in_batch_l
+        """
+        if len(prev_trajs) == 0:
+            return []
         
+        if step < self.start_consider_collision_step:
+            return []
+
         agent_constraint_l = []
-        # might not need this?
-        #t_range_l = []
-        #for agent_id_other in range(self.num_agents):
-        #    if agent_id_other != agent_id:
-        #        pass
+        q_l = []
+        t_range_l = []
+        radius_l = []
+        num_agents_in_state = len(prev_trajs)
+
+        ix_best_path_in_batch_l = self.compute_traj_cost(prev_trajs)
+
+        for agent_id_other in range(num_agents_in_state):
+            if agent_id_other != agent_id:
+                best_path_other_agent = \
+                    prev_trajs[agent_id_other][ix_best_path_in_batch_l[agent_id_other]].squeeze(0)
+                best_path_other_agent = self.reference_robot.get_position(best_path_other_agent)
+                for t_other_agent in range(0, len(best_path_other_agent), 1):
+                    t_agent = t_other_agent + self.start_time_l[agent_id_other] - self.start_time_l[agent_id]
+                    # The last timestep index for this agent is the lenfth of its path - 1.
+                    # If it does not have a path stored, then create constraints for all timesteps
+                    # in the path of the other agent (starting from zero).
+                    T_agent = len(prev_trajs[agent_id_other][0]) - 1
+                    if agent_id >= len(prev_trajs): # final agent
+                        T_agent = len(best_path_other_agent) - 1 
+                    else:
+                        T_agent = len(prev_trajs[agent_id][0]) - 1  
+                    
+                    if 1 <= t_agent <= T_agent:
+                        q_l.append(best_path_other_agent[t_other_agent])
+                        t_range_l.append((t_agent, t_agent + 1))
+                        radius_l.append(params.vertex_constraint_radius)
         
-        # if len(q_l)>0:
+        if len(q_l) > 0:
+            soft_constraint = MultiPointConstraintNoise(q_l=q_l, t_range_l=t_range_l)
+            soft_constraint.radius_l = radius_l
+            soft_constraint.is_soft = True
+            soft_constraint.model_var = model_var
+            agent_constraint_l.append(soft_constraint)
+        return agent_constraint_l 
+    
+    def compute_traj_cost(self, trajs_final):
+        ix_best_path_in_batch_l = []
 
-        return agent_constraint_l
+        for i in range(self.num_agents):
+            agent = self.single_agent_planner_l[i]
+            idx_best_traj = None  # Index of the best trajectory in the list of all trajectories (trajs_final).
+            idx_best_free_traj = None  # Index of the best trajectory in the list of all free trajs (trajs_final_free).
+            cost_best_free_traj = None  # Cost of the best trajectory.
+            cost_smoothness = None  # Cost of smoothness for all free trajectories.
+            cost_path_length = None  # Cost of path length for all free trajectories.
+            cost_all = None  # Cost of all factors for all free trajectories. This is a combination of some costs.
+            variance_waypoint_trajs_final_free = None  # Variance of waypoints for all free trajectories.
+            trajs_final_coll, trajs_final_coll_idxs, trajs_final_free, trajs_final_free_idxs, _ = (
+                agent.task.get_trajs_collision_and_free(trajs_final, return_indices=True))
+            if trajs_final_free is not None:
+                cost_smoothness = compute_smoothness(trajs_final_free, agent.robot)
+                print(f'cost smoothness: {cost_smoothness.mean():.4f}, {cost_smoothness.std():.4f}')
 
+                cost_path_length = compute_path_length(trajs_final_free, self.robot)
+                print(f'cost path length: {cost_path_length.mean():.4f}, {cost_path_length.std():.4f}')
+
+                # Compute best trajectory
+                cost_all = cost_path_length + cost_smoothness
+                idx_best_free_traj = torch.argmin(cost_all).item()
+                idx_best_traj = trajs_final_free_idxs[idx_best_free_traj]
+                ix_best_path_in_batch_l.append(idx_best_traj)
+        import pdb; pdb.set_trace()
+        return ix_best_path_in_batch_l
+        
+
+
+
+        
     def get_conflicts(self, path_l: List[torch.Tensor]) -> List[Conflict]:
         """
         Find conflicts between paths

@@ -14,6 +14,9 @@ from torch_robotics.torch_planning_objectives.fields.distance_fields import inte
 from torch_robotics.torch_utils.torch_utils import batched_weighted_dot_prod
 from torch_robotics.trajectory.utils import finite_difference_vector
 
+from torch.distributions.kl import kl_divergence
+from torch.distributions import MultivariateNormal
+
 
 class Cost(ABC):
     def __init__(self, robot, n_support_points, tensor_args=None, **kwargs):
@@ -328,6 +331,64 @@ class CostConstraint(Cost):
     def get_linear_system(self, trajs, **kwargs):
         pass
 
+class CostCostraintNoise(Cost):
+    def __init__(self,
+                 robot,
+                 n_support_points,
+                 q_l: List[torch.Tensor],  # Length n.
+                 traj_range_l: List[tuple],  # Length n. A tuple (start, end) for each constraint. Inclusive.
+                 radius_l: List[float],  # Length n. The radius for each constraint.
+                 is_soft: bool = False,  # Sigma stands for the standard deviation of the cost.
+                 **kwargs
+    ):
+        super().__init__(robot, n_support_points, **kwargs)
+        self.qs = torch.stack([q.to(**self.tensor_args) for q in q_l], dim=0)  # (n, q_dim)
+        self.traj_ranges = torch.tensor(traj_range_l, **self.tensor_args)  # (n, 2)
+        self.radii = torch.tensor(radius_l, device=self.qs.device)  # (n,)
+        self.is_soft = is_soft
+    
+    def eval(self, trajs):
+        # everything else could stay the same. we just modify the dist_constraint
+        q_pos = self.robto.get_position(trajs)  # (B, H, q_dim)
+        # Get the start and end indices for each range.
+        start_indices = self.traj_ranges[:, 0]  # (n,)
+        end_indices = self.traj_ranges[:, 1]  # (n,)
+
+        # Prepare a mask to extract relevant positions in the trajectory for each constraint.
+        mask = torch.arange(q_pos.shape[1], device=q_pos.device).unsqueeze(0).unsqueeze(0)  # (1, 1, H)
+        mask = (mask >= start_indices.view(-1, 1, 1)) & (mask < end_indices.view(-1, 1, 1))  # (n, 1, H)
+
+        # Repeat and reshape q_pos to match the constraints dimensions.
+        q_pos = q_pos.unsqueeze(0).expand(self.qs.shape[0], -1, -1, -1)  # (n, B, H, q_dim)
+        q_pos_masked = q_pos * mask.unsqueeze(-1)  # (n, B, H, q_dim)
+
+        # compute the distance between each position in the range and the corresponding q
+        dist_constraint = torch.norm(q_pos_masked - self.qs.view(-1, 1, 1, q_pos.shape[-1]),
+                                     dim=-1)  # (n, B, H)
+
+        # Apply the radius constraints.
+        mask_radius = dist_constraint > self.radii.view(-1, 1, 1)  # (n, B, H)
+        dist_constraint = torch.where(mask_radius, torch.zeros_like(dist_constraint),
+                                      dist_constraint)  # Only penalize inside the radius
+        
+        # Compute the cost.
+        # costs = (self.radii.view(-1, 1, 1) - dist_constraint).sum(dim=-1)  # (n, B)
+        sigma_p = torch.eye(q_pos.shape[-1], device=q_pos.device) * model_var
+        # TODO:
+        # 1. what the hell is this q_pos_masked and qs
+        # 2. how to pass model_var here
+        sigma_q = torch.eye(q_pos.shape[-1], device=q_pos.device) * model_var
+        p = MultivariateNormal(q_pos_masked, covariance_matrix=sigma_p)
+        q = MultivariateNormal(self.qs.view(-1, 1, 1,q_pos.shape[-1]), covariance_matrix=sigma)
+        costs = kl_divergence(p, q)
+        
+        # Sum the costs across all constraints.
+        total_costs = costs.sum()  # (1,)
+
+        return total_costs
+
+    def get_linear_system(self, trajs, **kwargs):
+        pass
 
 class CostMaxVelocity(Cost):
     def __init__(

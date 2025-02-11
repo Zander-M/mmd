@@ -84,6 +84,49 @@ class MultiPointConstraint(Constraint):
     def __repr__(self):
         return f"q_l: {self.q_l}, t_range_l: {self.t_range_l}, radius_l: {self.radius_l}, is_soft: {self.is_soft}"
 
+class MultiPointConstraintNoise(Constraint):
+    """
+    A class holding within it information for defining a batch of constraints. Each constraint has an associated time
+    range in which it is active, a configuration for its center, and a radius in configuration space.
+    """
+    def __init__(self, q_l: List[torch.Tensor],
+                 t_range_l: List[Tuple[int, int]],
+                 model_var: int,
+                 radius_l: List[float] = None,
+                 is_soft: bool = False,):
+        super().__init__()
+        # The list of configurations that are constrained.
+        self.q_l = q_l
+        # The time range in which the constraint is active. Inclusive on boundary.
+        self.t_range_l = t_range_l
+        # The radius of the constraint, in configuration space.
+        self.radius_l = [params.vertex_constraint_radius] * len(q_l) if radius_l is None else radius_l
+        # The weight of the constraint. This may be used as the guide gradient scaling factor.
+        self.is_soft = is_soft
+        self.model_var = model_var
+
+    def get_q_l(self) -> List[torch.Tensor]:
+        return self.q_l
+
+    def get_t_range_l(self):
+        return self.t_range_l
+
+    def get_radius_l(self):
+        return self.radius_l
+
+    def get_is_soft(self):
+        return self.is_soft
+
+    def get_copy(self):
+        constraint_new = MultiPointConstraintNoise(self.q_l.copy(), self.t_range_l.copy(), self.model_var, self.radius_l.copy(), self.is_soft)
+        return constraint_new
+
+    def __str__(self):
+        return f"q_l: {self.q_l}, t_range_l: {self.t_range_l}, model_var: {self.model_var}, radius_l: {self.radius_l}, is_soft: {self.is_soft}"
+
+    def __repr__(self):
+        return f"q_l: {self.q_l}, t_range_l: {self.t_range_l}, model_var: {self.model_var}, radius_l: {self.radius_l}, is_soft: {self.is_soft}"
+    
 
 class VertexConstraint(Constraint):
     """

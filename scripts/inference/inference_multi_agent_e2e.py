@@ -64,7 +64,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     end_to_end_planner_model_args = {
         'start_time_l': start_time_l,
         'runtime_limit': test_config.runtime_limit,
-        # 'n_diffusion_steps': test_config.n_diffusion_steps,
+        'start_consider_collision_step': test_config.start_consider_collision_step,
         'conflict_type_to_constraint_types': {PointConflict: {MultiPointConstraint}},
         'device': params.device,
         # device, seed, debug需要挪出来吗？
@@ -314,7 +314,7 @@ if __name__ == '__main__':
         get_start_goal_pos_circle(test_config_single_tile.num_agents, 0.8)
         print("Starts:", test_config_single_tile.start_state_pos_l)
         print("Goals:", test_config_single_tile.goal_state_pos_l)
-        # test_config_single_tile.n_diffusion_steps = 50
+        test_config_single_tile.start_consider_collision_step = 5
 
         run_multi_agent_trial(test_config_single_tile)
         print(GREEN, 'OK.', RESET)
