@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 from typing import List
 
-from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostConstraintNoise
+from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostCostraintNoise
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.seed import fix_random_seed
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
@@ -19,6 +19,7 @@ from mmd.trainer import get_dataset, get_model
 from mmd.utils.loading import load_params_from_yaml
 from mmd.planners.single_agent.single_agent_planner_base import SingleAgentPlanner
 from mmd.common.pretty_print import *
+from mmd.config import MMDParams as params
 
 class MPDEnd2End(SingleAgentPlanner):
     """
@@ -258,7 +259,7 @@ class MPDEnd2End(SingleAgentPlanner):
         # Directories.
         self.results_dir = results_dir
 
-    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraintNoise],
+    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostCostraintNoise],
                  *args,
                  **kwargs):
         """
@@ -288,6 +289,7 @@ class MPDEnd2End(SingleAgentPlanner):
                                    [self.weight_grad_cost_soft_constraints if c.is_soft else
                                     self.weight_grad_cost_constraints
                                     for c in constraints_l])
+        """
         trajs_normalized_iters = self.model.run_one_step_inference(
             self.context, self.hard_conds,
             n_samples=n_samples, horizon=self.n_support_points,
@@ -350,7 +352,7 @@ class MPDEnd2End(SingleAgentPlanner):
         # Remove the extra cost
         self.guide.reset_extra_costs()
 
-        return trajs_normalized, t_post_diffusion_guide
+        return trajs_normalized, t_post_diffusion_guide"""
 
     def update_constraints(self, constraint_l):
         cost_constraints_l = []
@@ -362,7 +364,7 @@ class MPDEnd2End(SingleAgentPlanner):
                             min(params.horizon - 1, t_range[1]))
                         for t_range in c.t_range_l]
             cost_constraints_l.append(
-                CostConstraintNoise(
+                CostCostraintNoise(
                     self.robot,
                     self.n_support_points,
                     model_var=c.model_var,

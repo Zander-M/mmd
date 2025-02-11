@@ -217,7 +217,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
                      n_diffusion_steps_without_noise=single_agent_planner_l[0].n_diffusion_steps_without_noise,
                     )
     planning_time = time.time() - startt
-    # Print planning times.
+    # Print planning times. 
     print(GREEN, 'Planning times:', planning_time, RESET)
 
     # ============================

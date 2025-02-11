@@ -349,9 +349,9 @@ class CostCostraintNoise(Cost):
         self.is_soft = is_soft
         self.model_var = model_var
     
-    def eval(self, trajs):
+    def eval(self, trajs, **observation):
         # everything else could stay the same. we just modify the dist_constraint
-        q_pos = self.robto.get_position(trajs)  # (B, H, q_dim)
+        q_pos = self.robot.get_position(trajs)  # (B, H, q_dim)
         # Get the start and end indices for each range.
         start_indices = self.traj_ranges[:, 0]  # (n,)
         end_indices = self.traj_ranges[:, 1]  # (n,)
