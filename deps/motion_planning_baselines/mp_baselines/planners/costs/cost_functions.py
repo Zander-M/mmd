@@ -363,25 +363,25 @@ class CostCostraintNoise(Cost):
         # Repeat and reshape q_pos to match the constraints dimensions.
         q_pos = q_pos.unsqueeze(0).expand(self.qs.shape[0], -1, -1, -1)  # (n, B, H, q_dim)
         q_pos_masked = q_pos * mask.unsqueeze(-1)  # (n, B, H, q_dim)
-
+        
+        # Compute the cost.
+        # costs = (self.radii.view(-1, 1, 1) - dist_constraint).sum(dim=-1)  # (n, B)
+        sigma_p = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
+        sigma_q = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
+        # q_pos_masked - current agent
+        p = MultivariateNormal(q_pos_masked, covariance_matrix=sigma_p)
+        # self.qs - other agent
+        q = MultivariateNormal(self.qs.view(-1, 1, 1,q_pos.shape[-1]), covariance_matrix=sigma_q)
         # compute the distance between each position in the range and the corresponding q
-        dist_constraint = torch.norm(q_pos_masked - self.qs.view(-1, 1, 1, q_pos.shape[-1]),
-                                     dim=-1)  # (n, B, H)
+        dist_constraint = kl_divergence(p, q)
 
         # Apply the radius constraints.
         mask_radius = dist_constraint > self.radii.view(-1, 1, 1)  # (n, B, H)
         dist_constraint = torch.where(mask_radius, torch.zeros_like(dist_constraint),
                                       dist_constraint)  # Only penalize inside the radius
-        
+
         # Compute the cost.
-        # costs = (self.radii.view(-1, 1, 1) - dist_constraint).sum(dim=-1)  # (n, B)
-        sigma_p = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
-        # TODO:
-        # 1. what the hell is this q_pos_masked and qs
-        sigma_q = torch.eye(q_pos.shape[-1], device=q_pos.device) * self.model_var
-        p = MultivariateNormal(q_pos_masked, covariance_matrix=sigma_p)
-        q = MultivariateNormal(self.qs.view(-1, 1, 1,q_pos.shape[-1]), covariance_matrix=sigma_q)
-        costs = kl_divergence(p, q)
+        costs = (self.radii.view(-1, 1, 1) - dist_constraint).sum(dim=-1)  # (n, B)
         
         # Sum the costs across all constraints.
         total_costs = costs.sum()  # (1,)

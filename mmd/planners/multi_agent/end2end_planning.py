@@ -339,9 +339,6 @@ class End2EndPlanning:
         return ix_best_path_in_batch_l
         
 
-
-
-        
     def get_conflicts(self, path_l: List[torch.Tensor]) -> List[Conflict]:
         """
         Find conflicts between paths

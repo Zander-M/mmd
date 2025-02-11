@@ -258,7 +258,7 @@ class MPDEnd2End(SingleAgentPlanner):
         # Directories.
         self.results_dir = results_dir
 
-    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraint],
+    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraintNoise],
                  *args,
                  **kwargs):
         """
