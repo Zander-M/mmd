@@ -169,7 +169,6 @@ class MPDEnd2End(SingleAgentPlanner):
         # normalize start and goal positions
         hard_conds = dataset.get_hard_conditions(torch.vstack((start_state_pos, goal_state_pos)), normalize=True)
         context = None
-        print(f'debug: get hard_conds via dataset.get_hard_conditions: {hard_conds}')
 
         ########
         # Set up the planning costs
@@ -181,7 +180,6 @@ class MPDEnd2End(SingleAgentPlanner):
         else:
             collision_fields = task.get_collision_fields()
 
-        print('debug: prepare to constract cost_collision_list')
         for collision_field in collision_fields:
             cost_collision_l.append(
                 CostCollision(
@@ -215,7 +213,6 @@ class MPDEnd2End(SingleAgentPlanner):
             weights_cost_l=weights_grad_cost_l,
             tensor_args=tensor_args
         )
-        print('debug: cost_composite list got')
 
         ########
         # Guiding manager
@@ -227,7 +224,6 @@ class MPDEnd2End(SingleAgentPlanner):
             num_interpolated_points=ceil(n_support_points * factor_num_interpolated_points_for_collision),
             tensor_args=tensor_args,
         )
-        print('debug: guide is formulated')
 
         t_start_guide = ceil(start_guide_steps_fraction * model.n_diffusion_steps)
 

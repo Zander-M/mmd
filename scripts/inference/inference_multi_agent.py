@@ -353,6 +353,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # ============================
     # Render.
     # ============================
+    import pdb; pdb.set_trace()
     if trial_success_status and len(paths_l) > 0:
         planner.render_paths(paths_l,
                              output_fpath=os.path.join(results_dir, f'{exp_name}.gif'),

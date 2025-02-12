@@ -85,7 +85,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     goal_l = test_config.goal_state_pos_l
     global_model_ids = test_config.global_model_ids
     agent_skeleton_l = test_config.agent_skeleton_l
-    print(f'debug: global_model_ids: {global_model_ids}')
 
     # ============================
     # Transforms and model tiles setup.
@@ -102,7 +101,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     tile_height = 2.0
     global_model_transforms = [[torch.tensor([x * tile_width, -y * tile_height], **tensor_args)
                                 for x in range(len(global_model_ids[0]))] for y in range(len(global_model_ids))]    
-    print(f'debug: global model tansforms:{global_model_transforms}')
 
     # ============================
     # Parse the single agent planner class name.
@@ -241,18 +239,21 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     single_trial_result.planning_time = planning_time
 
     # Number of agent pairs in collision.
-    if len(paths_l) > 0 and trial_success_status:
+    if len(paths_l) > 0 and trial_success_status[-1]:
         for t in range(len(paths_l[0])):
-            for j in range(i + 1, num_agents):
-                if torch.norm(paths_l[i][t, :2] - paths_l[j][t, :2]) < 2.0 * params.robot_planar_disk_radius:
-                    # The above should be reference_robot.radius.
-                    print(RED, 'Collision in solution:', i, j, t, paths_l[i][t, :2], paths_l[j][t, :2], RESET)
-                    single_trial_result.num_collisions_in_solution += 1
+            for i in range(num_agents):
+                for j in range(i + 1, num_agents):
+                    if torch.norm(paths_l[i][t, :2] - paths_l[j][t, :2]) < 2.0 * params.robot_planar_disk_radius:
+                        # The above should be reference_robot.radius.
+                        print(RED, 'Collision in solution:', i, j, t, paths_l[i][t, :2], paths_l[j][t, :2], RESET)
+                        single_trial_result.num_collisions_in_solution += 1
         if single_trial_result.num_collisions_in_solution > 0:
-            single_trial_result.success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
+            single_trial_result.success_status[-1] = TrialSuccessStatus.FAIL_COLLISION_AGENTS
 
     # If not successful, return here.
-    if trial_success_status:
+    if trial_success_status[-1]:
+        print('not successful')
+        import pdb; pdb.set_trace()
         pass
 
     # ============================

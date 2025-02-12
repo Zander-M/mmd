@@ -14,6 +14,7 @@ from torch_robotics.torch_utils.torch_timer import TimerCUDA
 from mmd.common.conflicts import Conflict
 from mmd.common.constraints import MultiPointConstraintNoise
 from mmd.common.experiments import TrialSuccessStatus
+from torch_robotics.visualizers.planning_visualizer import PlanningVisualizer, create_fig_and_axes
 from mmd.common.pretty_print import *
 from mmd.config import MMDParams as params
 from mmd.common import smooth_trajs, is_multi_agent_start_goal_states_valid, global_pad_paths
@@ -71,9 +72,56 @@ class End2EndPlanning:
             raise ValueError('Start or goal states are invalid.')
         
   
-    def render_path(self):
-        # TODO: 
-        pass
+    def render_paths(self, paths_l: List[torch.Tensor], constraints_l: List[MultiPointConstraintNoise]=None,
+                    animation_duration: float = 10.0, output_fpath=None, n_frames=None, plot_trajs=True,
+                    show_robot_in_image=True):
+        # Render
+        planner_visualizer = PlanningVisualizer(
+            task = self.reference_task,
+        )
+        # Add batch dimension to all paths.
+        # import pdb; pdb.set_trace()
+        # paths_l = [path.unsqueeze(0) for path in paths_l]
+
+        # If animation_duration is None or 0, don't animate and save an image instead.
+        if animation_duration is None or animation_duration == 0:
+            fig, ax = create_fig_and_axes()
+            for agent_id in range(self.num_agents):
+                planner_visualizer.render_robot_trajectories(
+                    fig=fig,
+                    ax=ax,
+                    trajs=paths_l[agent_id],
+                    start_state=self.start_state_pos_l[agent_id],
+                    goal_state=self.goal_state_pos_l[agent_id],
+                    colors=[self.agent_color_l[agent_id]],
+                    show_robot_in_image=show_robot_in_image
+                )
+            if output_fpath is None:
+                output_fpath = os.path.join(self.results_dir, 'robot-traj.png')
+            if not output_fpath.endswith('.png'):
+                output_fpath = output_fpath + '.png'
+            print(f'Saving image to: file://{os.path.abspath(output_fpath)}')
+            plt.axis('off')
+            plt.savefig(output_fpath, dpi=100, bbox_inches='tight', pad_inches=0)
+            return
+
+        base_file_name = Path(os.path.basename(__file__)).stem
+        if output_fpath is None:
+            output_fpath = os.path.join(self.results_dir, f'{base_file_name}-robot-traj.gif')
+        # Render the paths.
+        print(f'Rendering paths and saving to: file://{os.path.abspath(output_fpath)}')
+        planner_visualizer.animate_multi_robot_trajectories(
+            trajs_l=paths_l,
+            start_state_l=self.start_state_pos_l,
+            goal_state_l=self.goal_state_pos_l,
+            plot_trajs=plot_trajs,
+            video_filepath=output_fpath,
+            n_frames=max((2, paths_l[0].shape[1])) if n_frames is None else n_frames,
+            # n_frames=pos_trajs_iters[-1].shape[1],
+            anim_time=animation_duration,
+            constraints=constraints_l,
+            colors=self.agent_color_l
+        )
 
     def plan(self, t_start_guide, n_diffusion_steps_without_noise, 
              sample_fn=ddpm_sample_fn, return_chain=True, warm_start_path_b=None, runtime_limit=1000,):
@@ -103,7 +151,7 @@ class End2EndPlanning:
 
         prev_step_trajs = x
         constraint_l = [[] for _ in range(num_agent)]
-        trial_success_status_l = [[] for _ in range(num_agent+1)]
+        trial_success_status_l = [TrialSuccessStatus.UNKNOWN for _ in range(num_agent+1)]
         with TimerCUDA() as timer_inference:
             for i in reversed(range(-n_diffusion_steps_without_noise, self.n_diffusion_steps)):
                 print(f'denoising step: {i}')
@@ -184,9 +232,12 @@ class End2EndPlanning:
             agent = self.single_agent_planner_l[i]
 
             # un-normalize trajectory samples from the models
-            traj_iters = agent.dataset.unnormalize_trajectories(chain[i])
+            # trajs_normalized_iters.shape = (diffstep, n, B, H, q_dim) -> traj_iters (diffstep, B, H, q_dim)
+            traj_iters = agent.dataset.unnormalize_trajectories(trajs_normalized_iters[:, i])
+
             # trajectory of the final diffusion step output
-            trajs_final = traj_iters[-1]
+            trajs_final = traj_iters[-1]    # shape = (B, H, q_dim)
+
             trajs_final_coll, trajs_final_coll_idxs, trajs_final_free, trajs_final_free_idxs, _ = (
                 agent.task.get_trajs_collision_and_free(trajs_final, return_indices=True))
             # compute best traj
@@ -222,28 +273,28 @@ class End2EndPlanning:
             
             if trajs_final_free_idxs.shape[0]==0:
                 best_path_l.append(trajs_final)
-                trial_success_status_l.append(TrialSuccessStatus.FAIL_NO_SOLUTION)
+                trial_success_status_l[i] = TrialSuccessStatus.FAIL_NO_SOLUTION
                 continue
 
             # check if the runtime limit has been reached
             # if so, return whatever we have
             if time.time() - start_time > runtime_limit:
                 print(f"Runtime Limit Reached at agent #{i}")
-                trial_success_status_l.append(TrialSuccessStatus.FAIL_RUNTIME_LIMIT)
+                trial_success_status_l[num_agent] = TrialSuccessStatus.FAIL_RUNTIME_LIMIT
+                print('wrong time limit, about to return to main')
+                import pdb; pdb.set_trace()
                 return best_path_l, 0, trial_success_status_l, []
-            
             # Extract the best path from the batch
-            single_agent_best_path_l = [trajs_final[i][ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch 
+            single_agent_best_path_l = [trajs_final[ix_best_path_in_batch].squeeze(0) for i, ix_best_path_in_batch 
                         in enumerate(idx_best_traj)]  
             
             # Global pad before returning.
             # best_path_l: List[torch.Tensor], start_time_l:List[int]
-            single_agent_best_path_l = global_pad_paths(single_agent_best_path_l, agent.start_time_l)
+            single_agent_best_path_l = global_pad_paths(single_agent_best_path_l, self.start_time_l)
             single_agent_best_paths = torch.stack(single_agent_best_path_l)
-            
             best_path_l.append(single_agent_best_paths)
+
         print('finished planning')
-        import pdb; pdb.set_trace()
         # Check for conflicts
         conflict_l = self.get_conflicts(best_path_l)
         print(RED + 'Conflicts root node:', len(conflict_l), RESET)
@@ -251,10 +302,10 @@ class End2EndPlanning:
         if all(item == TrialSuccessStatus.UNKNOWN for item in trial_success_status_l):
             if len(conflict_l) > 0:
                 # success_status = TrialSuccessStatus.FAIL_COLLISION_AGENTS
-                trial_success_status_l.append(TrialSuccessStatus.FAIL_COLLISION_AGENTS)
+                trial_success_status_l[num_agent] = TrialSuccessStatus.FAIL_COLLISION_AGENTS
             else:
                 # success_status = TrialSuccessStatus.SUCCESS
-                trial_success_status_l.append(TrialSuccessStatus.SUCCESS)
+                trial_success_status_l[num_agent] = TrialSuccessStatus.SUCCESS
         
         
         # best_path, num_ct_expansions, trial_success_status, num_collisions_in_solution in priority_planning.plan
@@ -345,7 +396,8 @@ class End2EndPlanning:
     def get_conflicts(self, path_l: List[torch.Tensor]) -> List[Conflict]:
         """
         Find conflicts between paths
-        TODO: data structure matters
+        TODO:
+        path_l.shape = (n, H, q_dim)
         """
         conflicts = []
         return conflicts
