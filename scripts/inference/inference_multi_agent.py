@@ -256,7 +256,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Plan.
     # ============================
     startt = time.time()
-    import pdb; pdb.set_trace()
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
         planner.plan(runtime_limit=test_config.runtime_limit)
     planning_time = time.time() - startt
@@ -353,7 +352,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # ============================
     # Render.
     # ============================
-    import pdb; pdb.set_trace()
     if trial_success_status and len(paths_l) > 0:
         planner.render_paths(paths_l,
                              output_fpath=os.path.join(results_dir, f'{exp_name}.gif'),
@@ -374,7 +372,8 @@ if __name__ == '__main__':
     test_config_single_tile.instance_name = "test"
     # test_config_single_tile.multi_agent_planner_class = "XECBS"  # Or "ECBS" or "XCBS" or "CBS" or "PP".
     test_config_single_tile.multi_agent_planner_class = "PP"
-    test_config_single_tile.single_agent_planner_class = "MPDEnsemble"  # Or "MPD"
+    # test_config_single_tile.single_agent_planner_class = "MPDEnsemble"  # Or "MPD"
+    test_config_single_tile.single_agent_planner_class = "MPD"
     test_config_single_tile.stagger_start_time_dt = 0
     test_config_single_tile.runtime_limit = 60 * 3  # 3 minutes.
     test_config_single_tile.time_str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")

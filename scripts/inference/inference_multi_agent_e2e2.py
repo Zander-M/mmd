@@ -9,7 +9,7 @@ from typing import Tuple, List
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.torch_utils import get_torch_device
 # from mmd.planners.multi_agent import CBS, PrioritizedPlanning
-from mmd.planners.multi_agent import End2EndPlanning
+from mmd.planners.multi_agent import End2EndPlanning, End2EndPlanning2 
 from mmd.planners.single_agent import MPD, MPDEnd2End, MPDEnsemble
 from mmd.common.constraints import MultiPointConstraint
 from mmd.common.conflicts import PointConflict
@@ -74,7 +74,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Create a results directory.
     # ============================
     results_dir = get_result_dir_from_trial_config(test_config, test_config.time_str, test_config.trial_number)
-    import pdb; pdb.set_trace()
     os.makedirs(results_dir, exist_ok=True)
     num_agents = test_config.num_agents
 
@@ -187,7 +186,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         single_agent_planner_model_args_i['goal_state_pos'] = goal_l[i]
         single_agent_planner_model_args_i['model_ids'] = agent_model_ids_l[i]
         single_agent_planner_model_args_i["transforms"] = agent_model_transforms_l[i]
-        if test_config.single_agent_planner_class in ["MPD", "MPDe2e"]:
+        if test_config.single_agent_planner_class in ["MPD", "MPDe2e", "MPDe2e"]:
             single_agent_planner_model_args_i["model_id"] = agent_model_ids_l[i][0]
         single_agent_planner_l.append(planner_class(**single_agent_planner_model_args_i))
     print('Planners creation time:', time.time() - planners_creation_start_time)
@@ -197,12 +196,13 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Create the multi agent planner.
     # don't really exist, but we use sth like PP
     # ============================
-    planner = End2EndPlanning(single_agent_planner_l,
+    planner = End2EndPlanning2(single_agent_planner_l,
                              start_l,
                              goal_l,
                              reference_task=reference_task,
                              reference_robot=reference_robot,
                              **end_to_end_planner_model_args)
+    
     
     # ============================
     # Plan.
@@ -287,12 +287,12 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
 if __name__ == '__main__':
     test_config_single_tile = MultiAgentPlanningSingleTrialConfig()
     # test_config_single_tile.num_agents = 3
-    test_config_single_tile.num_agents = 2
+    test_config_single_tile.num_agents = 3
     test_config_single_tile.instance_name = "test"
     # test_config_single_tile.multi_agent_planner_class = "XECBS" 
     test_config_single_tile.single_agent_planner_class = "MPDe2e" # Or "MPDEnsemble"
     test_config_single_tile.stagger_start_time_dt = 0
-    test_config_single_tile.runtime_limit = 60 * 3  # 3 minutes.
+    test_config_single_tile.runtime_limit = 60 * 10  # 10 minutes. -- because saving video during the sampling process
     test_config_single_tile.time_str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     test_config_single_tile.render_animation = True  # Change the `densify_trajs` call above to create nicer animations.
 
