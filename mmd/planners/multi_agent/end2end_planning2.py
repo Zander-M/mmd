@@ -4,6 +4,8 @@ import time
 from copy import copy
 import einops
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import torch
 from typing import Tuple, List
@@ -12,7 +14,8 @@ from torch_robotics.trajectory.metrics import compute_smoothness, compute_path_l
 from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostConstraint
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
 from mmd.common.conflicts import Conflict
-from mmd.common.constraints import MultiPointConstraintNoise
+from mmd.common.trajectory_utils import densify_trajs
+from mmd.common.constraints import MultiPointConstraint
 from mmd.common.experiments import TrialSuccessStatus
 from torch_robotics.visualizers.planning_visualizer import PlanningVisualizer, create_fig_and_axes
 from mmd.common.pretty_print import *
@@ -24,7 +27,35 @@ def make_timesteps(batch_size, i ,device):
     t = torch.full((batch_size,), i, device=device, dtype=torch.long)
     return t
 
-class End2EndPlanning:
+
+
+def plot_2d_trajectories(tmp_batch_trajs_normalized, iteration, save_dir="~/mmd-dev/mmd/step_result"):
+    save_dir = os.path.expanduser(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
+
+    num_samples, Horizon, state_dim = tmp_batch_trajs_normalized.shape
+
+    plt.figure(figsize=(8, 8))
+    for sample in range(num_samples):
+        x = tmp_batch_trajs_normalized[sample, :, 0].cpu().numpy()
+        y = tmp_batch_trajs_normalized[sample, :, 1].cpu().numpy()
+        plt.plot(x, y, alpha=0.5, label=f'Traj {sample+1}' if num_samples <= 10 else None)  # 避免过多图例
+
+    plt.title(f'2D Trajectories at Iteration {iteration}')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.axis('equal')  # 保持 x 和 y 比例一致
+    plt.grid(True)
+
+    if num_samples <= 10:
+        plt.legend()
+
+    save_path = os.path.join(save_dir, f"trajectories_iter_{iteration}.png")
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Saved plot to {save_path}")
+
+class End2EndPlanning2:
     """
     End2End method Based on Diffusion Models
     """
@@ -72,15 +103,15 @@ class End2EndPlanning:
             raise ValueError('Start or goal states are invalid.')
         
   
-    def render_paths(self, paths_l: List[torch.Tensor], constraints_l: List[MultiPointConstraintNoise]=None,
+    def render_paths(self, paths_l: List[torch.Tensor], constraints_l: List[MultiPointConstraint]=None,
                     animation_duration: float = 10.0, output_fpath=None, n_frames=None, plot_trajs=True,
-                    show_robot_in_image=True):
+                    show_robot_in_image=True):    
         # Render
         planner_visualizer = PlanningVisualizer(
             task = self.reference_task,
         )
+        print("DEBUG: planner_visualizer is good")
         # Add batch dimension to all paths.
-        # import pdb; pdb.set_trace()
         # paths_l = [path.unsqueeze(0) for path in paths_l]
 
         # If animation_duration is None or 0, don't animate and save an image instead.
@@ -108,8 +139,64 @@ class End2EndPlanning:
         base_file_name = Path(os.path.basename(__file__)).stem
         if output_fpath is None:
             output_fpath = os.path.join(self.results_dir, f'{base_file_name}-robot-traj.gif')
+            print('DEBUG: output_fpath is created')
         # Render the paths.
         print(f'Rendering paths and saving to: file://{os.path.abspath(output_fpath)}')
+        planner_visualizer.animate_multi_robot_trajectories(
+            trajs_l=paths_l,
+            start_state_l=self.start_state_pos_l,
+            goal_state_l=self.goal_state_pos_l,
+            plot_trajs=plot_trajs,
+            video_filepath=output_fpath,
+            n_frames=max((2, paths_l[0].shape[1])) if n_frames is None else n_frames,
+            # n_frames=pos_trajs_iters[-1].shape[1],
+            anim_time=animation_duration,
+            constraints=constraints_l,
+            colors=self.agent_color_l
+        )
+
+    def render_paths_step(self, paths_l: List[torch.Tensor], constraints_l: List[MultiPointConstraint]=None,
+                    animation_duration: float = 10.0, output_fpath=None, n_frames=None, plot_trajs=True,
+                    show_robot_in_image=True):    
+        # Render
+        planner_visualizer = PlanningVisualizer(
+            task = self.reference_task,
+        )
+        # Add batch dimension to all paths.
+        # paths_l = [path.unsqueeze(0) for path in paths_l]
+
+        # If animation_duration is None or 0, don't animate and save an image instead.
+        if animation_duration is None or animation_duration == 0:
+            fig, ax = create_fig_and_axes()
+            for agent_id in range(self.num_agents):
+                planner_visualizer.render_robot_trajectories(
+                    fig=fig,
+                    ax=ax,
+                    trajs=paths_l[agent_id],
+                    start_state=self.start_state_pos_l[agent_id],
+                    goal_state=self.goal_state_pos_l[agent_id],
+                    colors=[self.agent_color_l[agent_id]],
+                    show_robot_in_image=show_robot_in_image
+                )
+            if output_fpath is None:
+                output_fpath = os.path.join(self.results_dir, 'robot-traj.png')
+            if not output_fpath.endswith('.png'):
+                output_fpath = output_fpath + '.png'
+            print(f'Saving image to: file://{os.path.abspath(output_fpath)}')
+            plt.axis('off')
+            plt.savefig(output_fpath, dpi=100, bbox_inches='tight', pad_inches=0)
+            return
+
+        #base_file_name = Path(os.path.basename(__file__)).stem
+
+        if output_fpath is None:
+            base_file_name=None
+            print("DEBUG: do i need this?")
+            # output_fpath = os.path.join(self.results_dir, f'{step}-robot-traj.gif')
+        # Render the paths.
+
+        # print(f'Rendering paths and saving to: file://{os.path.abspath(output_fpath)}')
+
         planner_visualizer.animate_multi_robot_trajectories(
             trajs_l=paths_l,
             start_state_l=self.start_state_pos_l,
@@ -149,14 +236,54 @@ class End2EndPlanning:
         # x = apply_hard_conditioning(x, agent.hard_conds)
         chain = [x] if return_chain else None
 
-        prev_step_trajs = x
-        constraint_l = [[] for _ in range(num_agent)]
         trial_success_status_l = [TrialSuccessStatus.UNKNOWN for _ in range(num_agent+1)]
         with TimerCUDA() as timer_inference:
             for i in reversed(range(-n_diffusion_steps_without_noise, self.n_diffusion_steps)):
-                print(f'denoising step: {i}')
+                if i == self.n_diffusion_steps-1:
+                    # get the first deterministic trajs for all the agent
+                    prev_step_trajs = [[] for _ in range(num_agent)]
+                    for j in range(num_agent):
+                        agent = self.single_agent_planner_l[j]
+                        tmp_batch_trajs_normalized = agent.model.run_inference(
+                            agent.context, agent.hard_conds,
+                            n_samples=batch_size, horizon=agent.n_support_points,
+                            return_chain=False,
+                            sample_fn=ddpm_sample_fn,
+                            n_diffusion_steps_without_noise=agent.n_diffusion_steps_without_noise,
+                        )
+                        # select the best path from the batch
+                        tmp_batch_traj = agent.dataset.unnormalize_trajectories(tmp_batch_trajs_normalized)
+                        _, _, tmp_final_free, tmp_final_free_idxs, _ = (
+                            agent.task.get_trajs_collision_and_free(tmp_batch_traj, return_indices=True)
+                        )
+                        if tmp_final_free is not None:
+                            cost_smoothness = compute_smoothness(tmp_final_free, agent.robot)
+                            print(f'cost smoothness: {cost_smoothness.mean():.4f}, {cost_smoothness.std():.4f}')
+                            
+                            cost_path_length = compute_path_length(tmp_final_free, agent.robot)
+                            print(f'cost path length: {cost_path_length.mean():.4f}, {cost_path_length.std():.4f}')
+
+                            # Compute best trajectory
+                            cost_all = cost_path_length + cost_smoothness
+                            idx_best_free_traj = torch.argmin(cost_all).item()
+                            idx_best_traj = tmp_final_free_idxs[idx_best_free_traj]
+                            #cost_best_free_traj = torch.min(cost_all).item()
+                            #print(f'cost best: {cost_best_free_traj:.3f}')
+                        else:
+                            print('no collision free path is found')
+                            idx_best_traj = random.choice(batch_size)
+                        tmp_best_path = tmp_batch_traj[idx_best_traj].squeeze(0)
+                        prev_step_trajs[j] = tmp_best_path
+                    print('DEV: generate the trajectories without no guide')
+
+                print(f'start denoising step: {i}')
+                # import pdb; pdb.set_trace()
+                
                 t = make_timesteps(batch_size, i, device)
+                if int(t[0]) < 0:
+                        t = torch.zeros_like(t)
                 for j in range(num_agent):
+                    print(f'DEV: start sampling for agent #{j} at step {i}')
                     agent = self.single_agent_planner_l[j]
 
                     # context and hard_conds must be normalized
@@ -172,22 +299,80 @@ class End2EndPlanning:
                             context[k] = einops.repeat(v, 'd -> b d', b=batch_size)
                     
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
-                    # NOTE: constraint_l: same type with PP's self.create_soft_constraints_from_other_agents_paths(root, agent_id=j)
-                    # type(constraint_l[j]) = List[]
-                    if int(t[0]) < 0:
-                        t = torch.zeros_like(t)
-                    model_log_variance = agent.model.posterior_log_variance_clipped.gather(-1, t).reshape(batch_size, *((1,) * (len(x[j].shape) - 1)))
-                    model_var = torch.exp(model_log_variance)
-                    print(f'model_var:{model_var}')
-                    # constraint_l[j] = self.create_soft_constraints_from_other_agents_paths(prev_step_trajs, agent_id=j, step=int(t[0]), model_var=model_var)
-                    constraint_l[j] = self.create_soft_constraints_from_other_agents_paths(prev_step_trajs, agent_id=j, step=int(t[0]), model_var=0.1)
-                    agent.update_constraints(constraint_l[j])
 
+                    constraint_l = self.create_soft_constraints_from_other_agents_paths(torch.stack(prev_step_trajs), agent_id=j)
+                    # previous guide is removed when new constraint_l is created
+                    agent.update_constraints(constraint_l)
+                    #print("DEV: agent.update_constraints")
+
+                    #print("so the sampling function is working?")
+                    #print(x[j][0].shape)
+                    #print(x[j][0])
                     x[j], _ = sample_fn(agent.model, x[j], hard_conds, context, t, guide=agent.guide)
+
                     x[j] = apply_hard_conditioning(x[j], hard_conds)
-                    # remove the added collision constraint(among agents)
+                    #print('=='*30)
+                    #print(x[j][0].shape)
+                    #print(f'{x[j][0]}')
+                    #print('=='*30)
+                    #print(f'is guide still here:{agent.guide is not None}')
+
+                    # update the deterministic path for agent 1
+                    tmp_batch_trajs_normalized = agent.model.run_inference(
+                            agent.context, agent.hard_conds,
+                            n_samples=agent.num_samples, horizon=agent.n_support_points,
+                            return_chain=False,
+                            sample_fn=ddpm_sample_fn,
+                            **agent.sample_fn_kwargs,
+                            n_diffusion_steps_without_noise=agent.n_diffusion_steps_without_noise,
+                        )
+                    #print(f"DEV: update sampling result for agent #{j} with guidance")
                     agent.guide.reset_extra_costs()
-                    prev_step_trajs[j] = x[j]
+                    #print("DEV: agent.guide.reset")
+                    #print('DEV: check if selection is the one make wrong choice')
+                    # plot_2d_trajectories(tmp_batch_trajs_normalized, iteration=abs(i-24)*num_agent + j, save_dir='~/mmd-dev/mmd/step_result')
+
+
+                    # with the newly added guide, update sampling result
+                    tmp_batch_traj = agent.dataset.unnormalize_trajectories(tmp_batch_trajs_normalized)
+                    # compute cost
+                    # TODO: should we come up with a decision consistency cost?
+                    _, _, tmp_final_free, tmp_final_free_idxs, _ = (
+                        agent.task.get_trajs_collision_and_free(tmp_batch_traj, return_indices=True))
+                    if tmp_final_free is not None:
+                        cost_smoothness = compute_smoothness(tmp_final_free, agent.robot)
+                        print(f'cost smoothness: {cost_smoothness.mean():.4f}, {cost_smoothness.std():.4f}')
+                        cost_path_length = compute_path_length(tmp_final_free, agent.robot)
+                        print(f'cost path length: {cost_path_length.mean():.4f}, {cost_path_length.std():.4f}')
+                        # compute best trajectory
+                        cost_all = cost_path_length + cost_smoothness
+                        idx_best_free_traj = torch.argmin(cost_all).item()
+                        idx_best_traj = tmp_final_free_idxs[idx_best_free_traj]
+                        cost_best_free_traj = torch.min(cost_all).item()
+                        print(f'cost best: {cost_best_free_traj:.3f}')
+                    else:
+                        print('no collision free trajectory is found, ramdonly select one')
+                        idx_best_traj = random.choice(batch_size)
+                    print('best traj selected')
+                    prev_step_trajs[j] = tmp_batch_trajs_normalized[idx_best_traj].squeeze(0)
+                    print('DEV: trajectories used for create soft constraint is updated')
+                    # import pdb; pdb.set_trace()
+                
+                """if j == int(num_agent-1):
+                    print('DEV: one round finish. save image. need to check if the render is as expected')
+                    # visual, make every step clear
+                    step_dir = '/local-scratch/localhome/lya108/mmd-dev/mmd/step_result'
+                    render_step_trajs = []
+                    for path in prev_step_trajs:
+                        render_step_trajs.append(path.unsqueeze(0))
+                    render_step_trajs = densify_trajs(render_step_trajs, 1)
+                    self.render_paths_step(render_step_trajs,
+                                      # output_fpath=os.path.join(step_dir, f'step{i+1}.gif'),
+                                      output_fpath= os.path.join(step_dir, f'step{i+1}.gif'),
+                                      animation_duration=10,
+                                      plot_trajs=True,
+                                      show_robot_in_image=True) """
+
                 if return_chain:
                     chain.append(x)
                 if time.time() - start_time > runtime_limit:
@@ -313,7 +498,7 @@ class End2EndPlanning:
         # best_path, num_ct_expansions, trial_success_status, num_collisions_in_solution in priority_planning.plan
         return best_path_l, [0 for _ in range(num_agent)], trial_success_status_l, len(conflict_l)
 
-    def create_soft_constraints_from_other_agents_paths(self, prev_trajs: torch.Tensor, agent_id: int, step:int, model_var=None,) -> List[MultiPointConstraintNoise]:
+    def create_soft_constraints_from_other_agents_paths(self, prev_trajs: torch.Tensor, agent_id: int) -> List[MultiPointConstraint]:
         """
         Create soft constraints from the paths of other agents.
         prev_trajs: torch.Tensor. trajectories at t-1 diffusion step for all agents.
@@ -323,8 +508,6 @@ class End2EndPlanning:
         if len(prev_trajs) == 0:
             return []
         
-        if step < self.start_consider_collision_step:
-            return []
 
         agent_constraint_l = []
         q_l = []
@@ -332,34 +515,30 @@ class End2EndPlanning:
         radius_l = []
         num_agents_in_state = len(prev_trajs)
 
-        ix_best_path_in_batch_l = self.compute_traj_cost(prev_trajs)
-
         for agent_id_other in range(num_agents_in_state):
             if agent_id_other != agent_id:
-                best_path_other_agent = \
-                    prev_trajs[agent_id_other][ix_best_path_in_batch_l[agent_id_other]].squeeze(0)
-                best_path_other_agent = self.reference_robot.get_position(best_path_other_agent)
+                best_path_other_agent = prev_trajs[agent_id_other]
+                best_path_pos_other_agent = self.reference_robot.get_position(best_path_other_agent)
                 for t_other_agent in range(0, len(best_path_other_agent), 1):
                     t_agent = t_other_agent + self.start_time_l[agent_id_other] - self.start_time_l[agent_id]
                     # The last timestep index for this agent is the lenfth of its path - 1.
                     # If it does not have a path stored, then create constraints for all timesteps
                     # in the path of the other agent (starting from zero).
-                    T_agent = len(prev_trajs[agent_id_other][0]) - 1
+                    T_agent = len(prev_trajs[agent_id_other]) - 1
                     if agent_id >= len(prev_trajs): # final agent
                         T_agent = len(best_path_other_agent) - 1 
                     else:
-                        T_agent = len(prev_trajs[agent_id][0]) - 1  
+                        T_agent = len(prev_trajs[agent_id]) - 1  
                     
                     if 1 <= t_agent <= T_agent:
-                        q_l.append(best_path_other_agent[t_other_agent])
+                        q_l.append(best_path_pos_other_agent[t_other_agent])
                         t_range_l.append((t_agent, t_agent + 1))
                         radius_l.append(params.vertex_constraint_radius)
         
         if len(q_l) > 0:
-            soft_constraint = MultiPointConstraintNoise(q_l=q_l, t_range_l=t_range_l, model_var=model_var)
+            soft_constraint = MultiPointConstraint(q_l=q_l, t_range_l=t_range_l)
             soft_constraint.radius_l = radius_l
             soft_constraint.is_soft = True
-            # soft_constraint.model_var = model_var
             agent_constraint_l.append(soft_constraint)
         return agent_constraint_l
     
@@ -393,7 +572,18 @@ class End2EndPlanning:
                 # idx_best_traj = trajs_final[i][idx_best_free_traj]
                 ix_best_path_in_batch_l.append(idx_random_choice)
         return ix_best_path_in_batch_l
-        
+    
+    def get_best_traj_from_batch(self, batch_trajs):
+        """
+        batch_trajs: torch.tensor, shape=[n, batch_size, horizion, dim]
+        """
+        print('DEBUG: shape of trajs in get_best_traj_from_batch')
+        print(f"should be (n,h,d), actually:{batch_trajs.shape}")
+        idx = self.compute_traj_cost(batch_trajs)
+        # TODO, we select the best path which is not normalized?
+        best_path_l = [batch_trajs[i][ix].squeeze(0) for i, ix in enumerate(idx)]
+        best_path = torch.stack(best_path_l)
+        return best_path
 
     def get_conflicts(self, path_l: List[torch.Tensor]) -> List[Conflict]:
         """

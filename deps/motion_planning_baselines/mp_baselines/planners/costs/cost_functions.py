@@ -331,7 +331,7 @@ class CostConstraint(Cost):
     def get_linear_system(self, trajs, **kwargs):
         pass
 
-class CostCostraintNoise(Cost):
+class CostConstraintNoise(Cost):
     def __init__(self,
                  robot,
                  n_support_points,

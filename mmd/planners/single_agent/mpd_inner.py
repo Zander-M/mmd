@@ -8,18 +8,23 @@ import matplotlib.pyplot as plt
 import torch
 from typing import List
 
-from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostCostraintNoise
+from mp_baselines.planners.costs.cost_functions import CostCollision, CostComposite, CostGPTrajectory, CostConstraint, CostConstraintNoise
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.seed import fix_random_seed
 from torch_robotics.torch_utils.torch_timer import TimerCUDA
 from torch_robotics.torch_utils.torch_utils import get_torch_device, freeze_torch_model_params
 from mmd.models import TemporalUnet, UNET_DIM_MULTS
 from mmd.models.diffusion_models.guides import GuideManagerTrajectoriesWithVelocity
+from mmd.models.diffusion_models.sample_functions import guide_gradient_steps,apply_hard_conditioning, ddpm_sample_fn
 from mmd.trainer import get_dataset, get_model
 from mmd.utils.loading import load_params_from_yaml
 from mmd.planners.single_agent.single_agent_planner_base import SingleAgentPlanner
 from mmd.common.pretty_print import *
 from mmd.config import MMDParams as params
+
+def make_timesteps(batch_size, i, device):
+    t = torch.full((batch_size,), i, device=device, dtype=torch.long)
+    return t
 
 class MPDEnd2End(SingleAgentPlanner):
     """
@@ -254,8 +259,15 @@ class MPDEnd2End(SingleAgentPlanner):
         self.task = task
         # Directories.
         self.results_dir = results_dir
+        
+        self.sample_fn_kwargs = dict(
+                 guide=None if self.run_prior_then_guidance or self.run_prior_only else self.guide,
+                 n_guide_steps=self.n_guide_steps,
+                 t_start_guide=self.t_start_guide,
+                 noise_std_extra_schedule_fn=lambda x: 0.5,
+        )
 
-    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostCostraintNoise],
+    def __call__(self, start_state_pos, goal_state_pos, constraints_l: List[CostConstraint],
                  *args,
                  **kwargs):
         """
@@ -353,17 +365,15 @@ class MPDEnd2End(SingleAgentPlanner):
     def update_constraints(self, constraint_l):
         cost_constraints_l = []
         for c in constraint_l:
-            # TODO: what's the difference between soft & not
             c.is_soft = False
             # Clip to range
             c.t_range_l = [(max(0, min(t_range[0], params.horizon - 1)),
                             min(params.horizon - 1, t_range[1]))
-                        for t_range in c.t_range_l]
+                            for t_range in c.t_range_l]
             cost_constraints_l.append(
-                CostCostraintNoise(
+                CostConstraint(
                     self.robot,
                     self.n_support_points,
-                    model_var=c.model_var,
                     q_l=c.get_q_l(),
                     traj_range_l=c.get_t_range_l(),
                     radius_l=c.radius_l,
