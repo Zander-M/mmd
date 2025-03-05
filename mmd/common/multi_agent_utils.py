@@ -78,16 +78,19 @@ def is_multi_agent_start_goal_states_valid(reference_robot,
         return False
     goals_collision_matrix, _ = reference_robot.check_rr_collisions(torch.stack(goal_state_pos_l))
     if torch.any(goals_collision_matrix):
+        import pdb; pdb.set_trace()
         print('Goal states are in collision.')
         print("The collision matrix is", goals_collision_matrix)
         return False
     starts_world_collisions = reference_task.compute_collision(torch.stack(start_state_pos_l))
     if torch.any(starts_world_collisions):
+        import pdb; pdb.set_trace()
         print('Start states are in collision with the world.')
         print("The collision matrix is", starts_world_collisions)
         return False
     goals_world_collisions = reference_task.compute_collision(torch.stack(goal_state_pos_l))
     if torch.any(goals_world_collisions):
+        import pdb; pdb.set_trace()
         print('Goal states are in collision with the world.')
         print("The collision matrix is", goals_world_collisions)
         return False

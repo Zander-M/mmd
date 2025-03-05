@@ -174,7 +174,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
             skeleton_model_coord[1]]
     reference_agent_model_ids = [reference_agent_model_ids[i] for i in range(len(reference_agent_model_ids))]
     # Create the reference low level planner.
-    print("Creating reference agent stuff.")
     low_level_planner_model_args['start_state_pos'] = torch.tensor([0.5, 0.9], **tensor_args)  # This does not matter.
     low_level_planner_model_args['goal_state_pos'] = torch.tensor([-0.5, 0.9], **tensor_args)  # This does not matter.
     low_level_planner_model_args['model_ids'] = reference_agent_model_ids  # This matters.
@@ -275,6 +274,10 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     single_trial_result.agent_skeleton_l = agent_skeleton_l
     # The agent paths. Each entry is of shape (H, 4).
     single_trial_result.agent_path_l = paths_l
+    print(f'PREP: check whats after planner.plan()')
+    print(f'PREP: paths_l, should be dict? type:{type(paths_l)}')
+    print(f'PREP: total len of paths_l: {len(paths_l)}')
+    print(f'PREP: shape of paths_l[0]: {paths_l[0].shape}')
     # Success.
     single_trial_result.success_status = trial_success_status
     # Number of collisions in the solution.
@@ -360,6 +363,10 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
                              show_robot_in_image=True)
         if test_config.render_animation:
             paths_l = densify_trajs(paths_l, 1)  # <------ Larger numbers produce nicer animations. But take longer to make too.
+            print('PREP: whats before render_paths?')
+            print(f'PREP: type of paths_l: {type(paths_l)}')
+            print(f'PREP: length of paths_l: {len(paths_l)}')
+            print(f"PREP: shape of paths_l[0]: {paths_l[0].shape}")
             planner.render_paths(paths_l,
                                  output_fpath=os.path.join(results_dir, f'{exp_name}.gif'),
                                  plot_trajs=True,
@@ -387,8 +394,8 @@ if __name__ == '__main__':
     if example_type == "single_tile":
         # Choose the model to use. A model is for a map/robot combination.
         # test_config_single_tile.global_model_ids = [['EnvEmpty2D-RobotPlanarDisk']]
-        test_config_single_tile.global_model_ids = [['EnvEmptyNoWait2D-RobotPlanarDisk']]
-        # test_config_single_tile.global_model_ids = [['EnvConveyor2D-RobotPlanarDisk']]
+        # test_config_single_tile.global_model_ids = [['EnvEmptyNoWait2D-RobotPlanarDisk']]
+        test_config_single_tile.global_model_ids = [['EnvConveyor2D-RobotPlanarDisk']]
         # test_config_single_tile.global_model_ids = [['EnvHighways2D-RobotPlanarDisk']]
         # test_config_single_tile.global_model_ids = [['EnvDropRegion2D-RobotPlanarDisk']]
 

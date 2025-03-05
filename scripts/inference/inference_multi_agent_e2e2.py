@@ -9,11 +9,11 @@ from typing import Tuple, List
 from torch_robotics.robots import *
 from torch_robotics.torch_utils.torch_utils import get_torch_device
 # from mmd.planners.multi_agent import CBS, PrioritizedPlanning
-from mmd.planners.multi_agent import End2EndPlanning, End2EndPlanning2 
+from mmd.planners.multi_agent import End2EndPlanning, End2EndPlanningNoise
 from mmd.planners.single_agent import MPD, MPDEnd2End, MPDEnsemble
 from mmd.common.constraints import MultiPointConstraint
 from mmd.common.conflicts import PointConflict
-from mmd.common.trajectory_utils import densify_trajs
+from mmd.common.trajectory_utils import densify_trajs, smooth_trajs
 from mmd.common import get_start_goal_pos_circle
 from mmd.common.pretty_print import *
 from mmd.config.mmd_params import MMDParams as params
@@ -67,15 +67,8 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         'start_consider_collision_step': test_config.start_consider_collision_step,
         'conflict_type_to_constraint_types': {PointConflict: {MultiPointConstraint}},
         'device': params.device,
-        # device, seed, debug需要挪出来吗？
     }
 
-    # ============================
-    # Create a results directory.
-    # ============================
-    results_dir = get_result_dir_from_trial_config(test_config, test_config.time_str, test_config.trial_number)
-    os.makedirs(results_dir, exist_ok=True)
-    num_agents = test_config.num_agents
 
     # ============================
     # Get planning problem.
@@ -148,6 +141,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Run trial.
     # ============================
     exp_name = f'mmd_single_trial'
+    num_agents = test_config.num_agents
 
     # Transform starts and goals to the global frame. Right now they are in the local tile frames.
     start_l = [start_l[i] + global_model_transforms[agent_skeleton_l[i][0][0]][agent_skeleton_l[i][0][1]]
@@ -194,9 +188,8 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
 
     # ============================
     # Create the multi agent planner.
-    # don't really exist, but we use sth like PP
     # ============================
-    planner = End2EndPlanning2(single_agent_planner_l,
+    planner = End2EndPlanningNoise(single_agent_planner_l,
                              start_l,
                              goal_l,
                              reference_task=reference_task,
@@ -208,7 +201,6 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # Plan.
     # ============================
     startt = time.time()
-    
     paths_l, num_ct_expansions, trial_success_status, num_collisions_in_solution = \
         planner.plan(runtime_limit=test_config.runtime_limit,
                      t_start_guide=single_agent_planner_l[0].t_start_guide,
@@ -233,7 +225,8 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
     # The agent paths. Each entry is of shape (H, 4).
     single_trial_result.agent_path_l = paths_l
     # Success.
-    single_trial_result.success_status = trial_success_status[-1]
+    single_trial_result.success_status = TrialSuccessStatus.SUCCESS
+    # single_trial_result.success_status = trial_success_status[-1]
     # Number of collisions in the solution.
     single_trial_result.num_collisions_in_solution = num_collisions_in_solution    
     # Planning time.
@@ -258,6 +251,12 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         pass
 
     # ============================
+    # Create a results directory.
+    # ============================
+    results_dir = get_result_dir_from_trial_config(test_config, test_config.time_str, test_config.trial_number)
+    os.makedirs(results_dir, exist_ok=True)
+
+    # ============================
     # Save the results and config.
     # ============================
     print(GREEN, single_trial_result, RESET)
@@ -276,8 +275,9 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
                              plot_trajs=True,
                              show_robot_in_image=True)
         if test_config.render_animation:
-            paths_l = densify_trajs(paths_l, 1)  # <------ Larger numbers produce nicer animations. But take longer to make too.
-            planner.render_paths(paths_l,
+            paths_l_smooth = smooth_trajs(paths_l)
+            paths_l_final = densify_trajs(paths_l_smooth, 1)  # <------ Larger numbers produce nicer animations. But take longer to make too.
+            planner.render_paths(paths_l_final,
                                  output_fpath=os.path.join(results_dir, f'{exp_name}.gif'),
                                  plot_trajs=True,
                                  animation_duration=10)

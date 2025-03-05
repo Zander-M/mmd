@@ -20,6 +20,7 @@ from mmd.trainer import get_dataset, get_model
 from mmd.utils.loading import load_params_from_yaml
 from mmd.planners.single_agent.single_agent_planner_base import SingleAgentPlanner
 from mmd.common.pretty_print import *
+from mmd.common import densify_trajs, smooth_trajs
 from mmd.config import MMDParams as params
 
 def make_timesteps(batch_size, i, device):
@@ -297,70 +298,7 @@ class MPDEnd2End(SingleAgentPlanner):
                                    [self.weight_grad_cost_soft_constraints if c.is_soft else
                                     self.weight_grad_cost_constraints
                                     for c in constraints_l])
-        """
-        trajs_normalized_iters = self.model.run_one_step_inference(
-            self.context, self.hard_conds,
-            n_samples=n_samples, horizon=self.n_support_points,
-            return_chain=True,
-            sample_fn=ddpm_sample_fn,
-            **self.sample_fn_kwargs,
-            n_diffusion_steps_without_noise=self.n_diffusion_steps_without_noise,
-        )
 
-    def run_one_step_inference(self, context=None, hard_conds=None, n_samples=1, **diffusion_kwargs):
-        # context and hard_conds must be normalized
-        hard_conds = copy(hard_conds)
-        context = copy(context)
-
-        #repeat hard conditions and context for n_samples
-        for k, v in hard_conds.items():
-            new_state = einops.repeat(v, 'd -> b d', b=n_samples)
-            hard_conds[k] = new_state
-        
-        if context is not None:
-            for k,v in context.items():
-                context[k] = einops.repeat(v, 'd -> b d', b=n_samples)
-        
-        #sample from diffusion model
-        # NOTE: remove the conditional_sample functions, consider only p_sample_loop for now
-        samples, trajs_normalized = self.model.p_sample_loop(hard_conds, context=context,)
-        # trajs: [ (n_diffusion_steps + 1) x n_samples x horizon x state_dim ]
-        # one step sampling -> no chains & no diffsteps
-        # trajs_chain_normalized = einops.rearrange(trajs_chain_normalized, 'b diffsteps h d -> diffsteps b h d')
-        
-
-        ########
-        # if final step, run extra guiding steps without diffusion
-        t_post_diffusion_guide = 0.0
-        if self.run_prior_then_guidance:
-            n_post_diffusion_guidance_steps = (self.t_start_guide +
-                                               self.n_diffusion_steps_without_noise) * self.n_guide_steps
-            print(CYAN + f'Running extra guiding steps without diffusion. Num steps:', n_post_diffusion_guide_steps,
-                  RESET)
-            with TimerCUDA() as timer_post_model_sample_guide:
-                trajs = trajs_normalized_iters[-1]
-                trajs_post_diff_l = []
-                for i in range(n_post_diffusion_guidance_steps):
-                    trajs = guide_gradient_steps(
-                        trajs,
-                        hard_conds = self.hard_conds,
-                        guide=self.guide,
-                        n_guide_steps=1,
-                        unormalize_data=False,
-                    )
-                    trajs_post_diff_l.append(trajs)
-                
-                # chain = torch.stack(trajs_post_diff_l, dim=1)
-                # chain = einops.rearrange(chain, 'b post_diff_guide_steps h d -> post_diff_guide_steps b h d')
-                # traj_normalized_iters = torch.cat((trajs_normalized_iters, chain))
-                traj_normalized_iters = torch.cat((trajs_normalized_iters))
-            t_post_diffusion_guide = t_post_diffusion_guide.elapsed
-            print(f't_post_diffusion_guide: {t_post_diffusion_guide:.3f} sec')
-        
-        # Remove the extra cost
-        self.guide.reset_extra_costs()
-
-        return trajs_normalized, t_post_diffusion_guide"""
 
     def update_constraints(self, constraint_l):
         cost_constraints_l = []
