@@ -5,4 +5,5 @@ data_trained_models/
 data_trained_models_large/
 data_trajectories/
 scripts/inference/results/*
+scripts/train_diffusion/logs
 *.tar.xz

@@ -72,7 +72,8 @@ from torch_robotics.environments import *
 
 allow_ops_in_compiled_graph()
 
-TRAINED_MODELS_DIR = '../../data_trained_models/'
+# TRAINED_MODELS_DIR = '../../data_trained_models/'
+TRAINED_MODELS_DIR = "scripts/train_diffusion/logs/train_diffusion_2025-01-19_17-28-46"
 device = 'cuda'
 device = get_torch_device(device)
 tensor_args = {'device': device, 'dtype': torch.float32}
@@ -155,6 +156,7 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         low_level_planner_class = MPD
     elif test_config.single_agent_planner_class == "MPDEnsemble":
         low_level_planner_class = MPDEnsemble
+    # TODO: Add single step planner here. Keep the same parameter as MPD
     else:
         raise ValueError(f'Unknown single agent planner class: {test_config.single_agent_planner_class}')
 
@@ -244,6 +246,8 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
         multi_agent_planner_class = CBS
     elif test_config.multi_agent_planner_class == "PP":
         multi_agent_planner_class = PrioritizedPlanning
+
+    # TODO: Add multi-step planner here. Use the same model architecture to reuse pre-trained model.
     else:
         raise ValueError(f'Unknown multi agent planner class: {test_config.multi_agent_planner_class}')
     planner = multi_agent_planner_class(low_level_planner_l,
@@ -368,9 +372,9 @@ def run_multi_agent_trial(test_config: MultiAgentPlanningSingleTrialConfig):
 
 if __name__ == '__main__':
     test_config_single_tile = MultiAgentPlanningSingleTrialConfig()
-    test_config_single_tile.num_agents = 3
+    test_config_single_tile.num_agents = 1
     test_config_single_tile.instance_name = "test"
-    test_config_single_tile.multi_agent_planner_class = "XECBS"  # Or "ECBS" or "XCBS" or "CBS" or "PP".
+    test_config_single_tile.multi_agent_planner_class = "PP"  # Or "ECBS" or "XCBS" or "CBS" or "PP".
     test_config_single_tile.single_agent_planner_class = "MPDEnsemble"  # Or "MPD"
     test_config_single_tile.stagger_start_time_dt = 0
     test_config_single_tile.runtime_limit = 60 * 3  # 3 minutes.

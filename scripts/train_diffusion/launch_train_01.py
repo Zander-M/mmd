@@ -18,7 +18,7 @@ USE_CUDA = True
 
 N_SEEDS = 1
 
-N_EXPS_IN_PARALLEL = 4
+N_EXPS_IN_PARALLEL = 16
 
 N_CORES = N_EXPS_IN_PARALLEL * 4
 MEMORY_SINGLE_JOB = 12000
@@ -92,7 +92,7 @@ lr = 3e-4
 
 
 wandb_options = dict(
-    wandb_mode='online',  # "online", "offline" or "disabled"
+    wandb_mode='disabled',  # "online", "offline" or "disabled" # disabled
     wandb_entity='wandb_username',  # "username"
     wandb_project=exp_name
 )
