@@ -75,6 +75,27 @@ class PlanningVisualizer:
                 )
 
         return fig, ax
+    
+    def render_multi_robot_trajectories(self, fig=None, ax=None, render_planner=False, 
+                                        start_goal_pairs=None, trajs=None, t=-1, **kwargs):
+        if fig is None or ax is None:
+            fig, ax = create_fig_and_axes(dim=self.env.dim)
+        if render_planner:
+            self.planner.render(ax)
+        self.env.render(ax)
+        if trajs is not None:
+            num_agents = len(trajs)
+            for agent_idx in range(num_agents):
+                start_state, goal_state = start_goal_pairs[agent_idx]
+                self.robot.render(ax, start_state, color='green', cmap='Greens')
+                self.robot.render(ax, goal_state, color='green', cmap='Greens')
+                # Plot the first trajectory in the batch
+                agent_color = plt.cm.get_cmap("tab20")(agent_idx % 20)
+                traj = trajs[agent_idx, t, 0]
+                kwargs['colors'] = [agent_color]
+                kwargs['linewidth'] = [5]
+                self.robot.render_trajectories(ax, trajs=traj.unsqueeze(0), **kwargs)
+        return fig, ax
 
     def animate_robot_trajectories(
             self, trajs=None, start_state=None, goal_state=None,
@@ -253,6 +274,29 @@ class PlanningVisualizer:
                 self.robot.render(ax, goal_state, color='purple', cmap='Purples')
 
         create_animation_video(fig, animate_fn, n_frames=n_frames, **kwargs)
+
+    def animate_opt_iters_multi_robots(
+                self, start_goal_pairs=None, trajs=None,
+                **kwargs
+        ):
+            # trajs: steps, batch, horizon, q_dim
+            if trajs is None:
+                return
+
+            num_agents, S, B, H, D = trajs.shape
+            print(trajs.shape)
+
+            fig, ax = create_fig_and_axes(dim=self.env.dim)
+
+            def animate_fn(i):
+                ax.clear()
+                ax.set_title(f"iter: {i}/{S-1}")
+                self.render_multi_robot_trajectories(
+                    fig=fig, ax=ax, trajs=trajs,
+                    start_goal_pairs=start_goal_pairs, t=i, **kwargs
+                )
+            kwargs["video_filepath"] = "video.gif"
+            create_animation_video(fig, animate_fn, n_frames=S, **kwargs)
 
     def plot_joint_space_state_trajectories(
             self,
